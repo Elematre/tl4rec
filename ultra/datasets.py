@@ -7,7 +7,7 @@ from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR
 
 from ultra.tasks import build_relation_graph
 
-#this is a test for pushing to git
+#this is a test for pushing to git 2
 
 class GrailInductiveDataset(InMemoryDataset):
 
