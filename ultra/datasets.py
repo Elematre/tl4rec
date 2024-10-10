@@ -353,7 +353,7 @@ class TransductiveDataset(InMemoryDataset):
     def processed_file_names(self):
         return "data.pt"
 
-
+class MovieL
 
 class CoDEx(TransductiveDataset):
 
