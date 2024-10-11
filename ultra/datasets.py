@@ -353,7 +353,15 @@ class TransductiveDataset(InMemoryDataset):
     def processed_file_names(self):
         return "data.pt"
 
-class MovieL
+class MovieLens1M_pyG(TransductiveDataset):
+    urls = [
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/train.txt",
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/valid.txt",
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/test.txt",
+    ]
+    name = "movielens1M_pyG"
+    delimiter = "\t"
+    
 
 class CoDEx(TransductiveDataset):
 
