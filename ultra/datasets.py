@@ -355,9 +355,9 @@ class TransductiveDataset(InMemoryDataset):
 
 class MovieLens1M_pyG(TransductiveDataset):
     urls = [
-        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/train.txt",
-        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/valid.txt",
-        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/test.txt",
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/MovieLenseData/train_full.txt",
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/MovieLenseData/valid_small.txt",
+        "https://raw.githubusercontent.com/Elematre/tl4rec/refs/heads/main/MovieLenseData/test_small.txt",
     ]
     name = "movielens1M_pyG"
     delimiter = "\t"
