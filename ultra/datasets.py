@@ -3,7 +3,7 @@ import csv
 import shutil
 import torch
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
-from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR
+from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
 
 from ultra.tasks import build_relation_graph
 
@@ -205,6 +205,85 @@ def FB15k237(root):
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
+def MovieLens100k(root):
+        # load dataset
+        dataset = MovieLens100K(root=root+"/movieLens100k/")
+
+        edge_index = dataset[0]['user', 'rates', 'movie'].edge_index
+        # since ratings are the etypes we need to ensure that rating is within 0 - num_rels and not 1-5 thus -1
+        ratings = dataset[0]['user', 'rates', 'movie'].rating - 1
+        data_size = edge_index.size(1)
+
+        # users and movies share the same ids this could pose problems
+        # thus fix it
+        user_ids = edge_index[0]
+        movie_ids = edge_index[1]
+        max_user_id = user_ids.max()
+        adjusted_movie_ids = movie_ids + max_user_id + 1
+        edge_index[1] = adjusted_movie_ids
+        
+
+
+    
+        # Shuffle the edges
+        perm = torch.randperm(data_size)  
+        edge_index = edge_index[:, perm] 
+        ratings = ratings[perm] 
+    
+        # Split the dataset (80% train, 10% validation, 10% test)
+        train_size = int(data_size * 0.8)
+        valid_size = int(data_size * 0.1)
+        test_size = data_size - train_size - valid_size
+      
+        train_target_edges = edge_index[:, :train_size]
+        train_ratings = ratings[:train_size]
+    
+        valid_edges = edge_index[:, train_size:train_size + valid_size]
+        valid_ratings = ratings[train_size:train_size + valid_size]
+        
+        test_edges = edge_index[:, train_size + valid_size: data_size]
+        test_ratings = ratings[train_size + valid_size: data_size]
+
+
+        # Combine original train edges and reversed train edges
+        train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=-1)
+    
+        # Combine the ratings (use the different ratings for reversed edges --> adding 5 this would else create problems )
+        train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
+    
+        num_node = dataset[0].num_nodes
+        # ratings are betweeen 1 and 5 and we double it thus 10 rels
+        num_relations = 10
+    
+        # instead of hardcoding num_relations
+        # Find the unique ratings
+        # unique_ratings = torch.unique(ratings)
+        # Count the number of unique ratings
+        # num_unique_ratings = unique_ratings.size(0)
+    
+    
+        # Construct PyG Data objects
+        train_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, 
+                          num_nodes=num_node, target_edge_index=train_target_edges, target_edge_type=train_ratings, num_relations = num_relations)
+        
+        valid_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, num_nodes=num_node,
+                              target_edge_index=valid_edges, target_edge_type=valid_ratings, num_relations=num_relations)
+        test_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, num_nodes=num_node,
+                             target_edge_index=test_edges, target_edge_type=test_ratings, num_relations=num_relations)
+    
+
+        
+        # build relation graphs
+        train_data = build_relation_graph(train_data)
+        valid_data = build_relation_graph(valid_data)
+        test_data = build_relation_graph(test_data)
+        
+    
+        print ("rel graph is built")  
+        dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
+        #raise ValueError("abort.")
+        return dataset
+
 def WN18RR(root):
     dataset = WordNet18RR(root=root+"/wn18rr/")
     # convert wn18rr into the same format as fb15k-237
@@ -215,6 +294,8 @@ def WN18RR(root):
     edge_type = data.edge_type[data.train_mask]
     edge_index = torch.cat([edge_index, edge_index.flip(0)], dim=-1)
     edge_type = torch.cat([edge_type, edge_type + num_relations])
+    
+    
     train_data = Data(edge_index=edge_index, edge_type=edge_type, num_nodes=num_nodes,
                         target_edge_index=data.edge_index[:, data.train_mask],
                         target_edge_type=data.edge_type[data.train_mask],
@@ -228,6 +309,7 @@ def WN18RR(root):
                         target_edge_type=data.edge_type[data.test_mask],
                         num_relations=num_relations*2)
     
+        
     # build relation graphs
     train_data = build_relation_graph(train_data)
     valid_data = build_relation_graph(valid_data)
@@ -235,7 +317,11 @@ def WN18RR(root):
 
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     dataset.num_relations = num_relations * 2
+    
+    raise ValueError("abort.")
+    
     return dataset
+
 
 
 class TransductiveDataset(InMemoryDataset):
@@ -316,6 +402,7 @@ class TransductiveDataset(InMemoryDataset):
         test_edges = torch.tensor([[t[0], t[1]] for t in test_triplets], dtype=torch.long).t()
         test_etypes = torch.tensor([t[2] for t in test_triplets])
 
+        # train_edges is undirected whil train_target edges is directed why? also doubles edge types
         train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
         train_etypes = torch.cat([train_target_etypes, train_target_etypes+num_relations])
 
@@ -352,6 +439,8 @@ class TransductiveDataset(InMemoryDataset):
     @property
     def processed_file_names(self):
         return "data.pt"
+    
+
 
 class MovieLens1M_pyG(TransductiveDataset):
     urls = [

@@ -144,25 +144,37 @@ def compute_ranking(pred, target, mask=None):
 def build_relation_graph(graph):
 
     # expect the graph is already with inverse edges
+    
 
     edge_index, edge_type = graph.edge_index, graph.edge_type
     num_nodes, num_rels = graph.num_nodes, graph.num_relations
     device = edge_index.device
-
+    
     Eh = torch.vstack([edge_index[0], edge_type]).T.unique(dim=0)  # (num_edges, 2)
+    # this calculate the degree of the heads where dh[i] = is the degree of node i
     Dh = scatter_add(torch.ones_like(Eh[:, 1]), Eh[:, 0])
-
+    
+    # this basically creates a spars matrix where first vector has size (2,num_non_zero_elements) for a 2D matrix and the value has size  
+    # num_non_zero_elements. Thus here a sparse matrix where for each h,r we have M(r,h) = 1 / deg h
     EhT = torch.sparse_coo_tensor(
         torch.flip(Eh, dims=[1]).T, 
         torch.ones(Eh.shape[0], device=device) / Dh[Eh[:, 0]], 
         (num_rels, num_nodes)
     )
+
     Eh = torch.sparse_coo_tensor(
         Eh.T, 
         torch.ones(Eh.shape[0], device=device), 
         (num_nodes, num_rels)
     )
+
+    
+    
+
     Et = torch.vstack([edge_index[1], edge_type]).T.unique(dim=0)  # (num_edges, 2)
+
+
+    
 
     Dt = scatter_add(torch.ones_like(Et[:, 1]), Et[:, 0])
     assert not (Dt[Et[:, 0]] == 0).any()
@@ -172,6 +184,7 @@ def build_relation_graph(graph):
         torch.ones(Et.shape[0], device=device) / Dt[Et[:, 0]], 
         (num_rels, num_nodes)
     )
+
     Et = torch.sparse_coo_tensor(
         Et.T, 
         torch.ones(Et.shape[0], device=device), 
@@ -187,7 +200,7 @@ def build_relation_graph(graph):
     tt_edges = torch.cat([Att.indices().T, torch.zeros(Att.indices().T.shape[0], 1, dtype=torch.long).fill_(1)], dim=1)  # tail to tail
     ht_edges = torch.cat([Aht.indices().T, torch.zeros(Aht.indices().T.shape[0], 1, dtype=torch.long).fill_(2)], dim=1)  # head to tail
     th_edges = torch.cat([Ath.indices().T, torch.zeros(Ath.indices().T.shape[0], 1, dtype=torch.long).fill_(3)], dim=1)  # tail to head
-    
+
     rel_graph = Data(
         edge_index=torch.cat([hh_edges[:, [0, 1]].T, tt_edges[:, [0, 1]].T, ht_edges[:, [0, 1]].T, th_edges[:, [0, 1]].T], dim=1), 
         edge_type=torch.cat([hh_edges[:, 2], tt_edges[:, 2], ht_edges[:, 2], th_edges[:, 2]], dim=0),
