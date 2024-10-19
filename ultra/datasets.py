@@ -205,27 +205,6 @@ def FB15k237(root):
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
-# MovieLens100K(root=root+"/movieLens100k/")
-# HeteroData(
-#  movie={ x=[1682, 18] }, where the features are onehot encodings of categories where a movie can belong to multiple categories
-#  user={ x=[943, 24] }, feat 0 is age normalized , feat 2 is gender M =0 the rest is a onehot encoding for occupations 
-#  (user, rates, movie)={
-#    edge_index=[2, 80000],
-#    rating=[80000],
-#    time=[80000],
-#    edge_label_index=[2, 20000],
-#    edge_label=[20000],
-#  },
-#  (movie, rated_by, user)={
-#    edge_index=[2, 80000],
-#    rating=[80000],
-#    time=[80000],
-#  }
-#)
-
-# genres are:Action | Adventure | Animation |Children's | Comedy | Crime | Documentary | Drama | Fantasy | Film-Noir | Horror | Musical | Myster | Romance | Sci-Fi |Thriller | War | Western |
-
-
 def MovieLens100k(root):
         # load dataset
         dataset = MovieLens100K(root=root+"/movieLens100k/")
@@ -270,14 +249,11 @@ def MovieLens100k(root):
         train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=-1)
     
         # Combine the ratings (use the different ratings for reversed edges --> adding 5 this would else create problems )
-        # train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
-        # update I tested it and it also work with the same relation for the reversed edges
-        train_ratings_combined = torch.cat([train_ratings, train_ratings], dim=0)
+        train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
     
         num_node = dataset[0].num_nodes
         # ratings are betweeen 1 and 5 and we double it thus 10 rels
-        # num_relations = 10
-        num_relations = 5
+        num_relations = 10
     
         # instead of hardcoding num_relations
         # Find the unique ratings
