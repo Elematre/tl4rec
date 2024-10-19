@@ -3,6 +3,8 @@ import sys
 import math
 import pprint
 from itertools import islice
+import wandb
+import datetime
 
 import torch
 import torch_geometric as pyg
@@ -238,7 +240,15 @@ if __name__ == "__main__":
         logger.warning("Random seed: %d" % args.seed)
         logger.warning("Config file: %s" % args.config)
         logger.warning(pprint.pformat(cfg))
-    
+
+        
+    # Initialize Weights & Biases run
+    dataset_name = cfg.dataset["class"]
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    run_name = f"run-{dataset_name}-{current_time}"
+    wandb.init(
+        entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+        
     task_name = cfg.task["name"]
     dataset = util.build_dataset(cfg)
     device = util.get_device(cfg)
@@ -259,6 +269,9 @@ if __name__ == "__main__":
 
     #model = pyg.compile(model, dynamic=True)
     model = model.to(device)
+    wandb.watch(model, log="all", log_freq=100)
+ 
+    
     
     if task_name == "InductiveInference":
         # filtering for inductive datasets
