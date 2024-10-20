@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --mail-type=NONE # mail configuration: NONE, BEGIN, END, FAIL, REQUEUE, ALL
-#SBATCH --output=/itet-stor/TODO_USERNAME/net_scratch/cluster/jobs/%j.out # where to store the output (%j is the JOBID), subdirectory "jobs" must exist
-#SBATCH --error=/itet-stor/TODO_USERNAME/net_scratch/cluster/jobs/%j.err # where to store error messages
-#SBATCH --mem=20G
+#SBATCH --output=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%j.out # Output file, where %j is the JOBID
+#SBATCH --error=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%j.err # Error file, where %j is the JOBID1~#SBATCH --mem=20G
+#SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
@@ -48,10 +48,12 @@ echo "SLURM_JOB_ID: ${SLURM_JOB_ID}"
 [[ -f /itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda ]] && eval "$(/itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda shell.bash hook)"
 conda activate ${CONDA_ENVIRONMENT}
 echo "Conda activated"
+conda info --envs
+
 cd ${DIRECTORY}
 
 # Execute your code
-python script/run.py -c config/transductive/inference.yaml --dataset MovieLens100k --epochs 10 --bpe 100 --gpus [0] --ckpt /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ckpts/ultra_4g.pth
+python script/run.py -c config/transductive/inference.yaml --dataset MovieLens100k --epochs 0 --bpe null --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/ultra_4g.pth
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
