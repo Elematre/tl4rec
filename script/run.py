@@ -223,7 +223,9 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
+            wandb.log({f"performance/{metric}": score})
     mrr = (1 / all_ranking.float()).mean()
+    wandb.log({"performance/mrr": mrr})
 
     return mrr if not return_metrics else metrics
 
