@@ -35,7 +35,7 @@ optimizer:
   lr: 5.0e-4
 
 train:
-  gpus: {{ gpus }}
+  gpus: [{{ gpus }}]
   batch_size: 8
   num_epoch: {{ epochs }}
   log_interval: 100

@@ -212,6 +212,8 @@ def MovieLens100k(root):
         edge_index = dataset[0]['user', 'rates', 'movie'].edge_index
         # since ratings are the etypes we need to ensure that rating is within 0 - num_rels and not 1-5 thus -1
         ratings = dataset[0]['user', 'rates', 'movie'].rating - 1
+        user_features = dataset[0]["user"].x
+        item_features = dataset[0]["movie"].x
         data_size = edge_index.size(1)
 
         # users and movies share the same ids this could pose problems
@@ -277,6 +279,15 @@ def MovieLens100k(root):
         train_data = build_relation_graph(train_data)
         valid_data = build_relation_graph(valid_data)
         test_data = build_relation_graph(test_data)
+
+        train_data.x_user = user_features
+        train_data.x_item = item_features
+
+        valid_data.x_user = user_features
+        valid_data.x_item = item_features
+    
+        test_data.x_user = user_features
+        test_data.x_item = item_features
         
     
         print ("rel graph is built")  
