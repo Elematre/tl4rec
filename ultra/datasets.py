@@ -219,7 +219,9 @@ def MovieLens100k(root):
         # users and movies share the same ids this could pose problems
         # thus fix it
         user_ids = edge_index[0]
+        num_users = user_features.size(0)
         movie_ids = edge_index[1]
+        num_items = item_features.size(0)
         max_user_id = user_ids.max()
         adjusted_movie_ids = movie_ids + max_user_id + 1
         edge_index[1] = adjusted_movie_ids
@@ -282,12 +284,18 @@ def MovieLens100k(root):
 
         train_data.x_user = user_features
         train_data.x_item = item_features
+        train_data.num_users = num_users
+        train_data.num_items = num_items
 
         valid_data.x_user = user_features
         valid_data.x_item = item_features
+        valid_data.num_users = num_users
+        valid_data.num_items = num_items
     
         test_data.x_user = user_features
         test_data.x_item = item_features
+        test_data.num_users = num_users
+        test_data.num_items = num_items
         
     
         print ("rel graph is built")  
