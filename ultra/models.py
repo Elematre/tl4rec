@@ -11,17 +11,24 @@ class Ultra(nn.Module):
         super(Ultra, self).__init__()
 
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
+        self.item_embedding = nn.Linear(18, 16)
+        self.user_embedding = nn.Linear(24, 16)
+        #globals() contains all global class variable 
+        #rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
+        #**rel_model_cfg contains dict of cfg file
         self.relation_model = globals()[rel_model_cfg.pop('class')](**rel_model_cfg)
         self.entity_model = globals()[entity_model_cfg.pop('class')](**entity_model_cfg)
 
         
     def forward(self, data, batch):
-        
+        #calculate embeddings
+        user_embedding = self.user_embedding(data.x_user)  # shape: (num_users, 16)
+        item_embedding = self.item_embedding(data.x_item)
         # batch shape: (bs, 1+num_negs, 3)
         # relations are the same all positive and negative triples, so we can extract only one from the first triple among 1+nug_negs
         query_rels = batch[:, 0, 2]
         relation_representations = self.relation_model(data.relation_graph, query=query_rels)
-        score = self.entity_model(data, relation_representations, batch)
+        score = self.entity_model(data, relation_representations, batch, user_embedding, item_embedding)
         
         return score
 
@@ -128,17 +135,35 @@ class EntityNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, h_index, r_index, separate_grad=False):
+    def bellmanford(self, data, h_index, r_index, user_embedding, item_embedding, separate_grad=False):
         batch_size = len(r_index)
 
         # initialize queries (relation types of the given triples)
-        query = self.query[torch.arange(batch_size, device=r_index.device), r_index]
+        # Must adjust size of queries since we add the 16 bit embeddings 
+        # in the hidden layers we project (expected input dim) the queries for further calculations
+        query_temp = self.query[torch.arange(batch_size, device=r_index.device), r_index]  # (8, 16)
+        zeros = torch.zeros(8, 16, dtype=query_temp.dtype, device=r_index.device)  # Create zeros on the same device as r_index
+        query = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
+        
         index = h_index.unsqueeze(-1).expand_as(query)
 
+
+        # ORIGINAL ULTRA CODE 
         # initial (boundary) condition - initialize all node states as zeros
-        boundary = torch.zeros(batch_size, data.num_nodes, self.dims[0], device=h_index.device)
+        # boundary = torch.zeros(batch_size, data.num_nodes, self.dims[0], device=h_index.device)
         # by the scatter operation we put query (relation) embeddings as init features of source (index) nodes
-        boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))
+        # boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))
+
+        # Initialize all node states as zeros
+        boundary = torch.zeros(batch_size, data.num_nodes, self.dims[0], device=h_index.device)  # size is 32 (16 + 16)
+        
+        # Append node embeddings for all nodes (user and item)
+        embedding_index= int (self.dims[0]/2)
+        all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
+        boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
+        
+        boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))  # Add relation embeddings to the first 16 entries
+
         
         size = (data.num_nodes, data.num_nodes)
         edge_weight = torch.ones(data.num_edges, device=h_index.device)
@@ -174,7 +199,7 @@ class EntityNBFNet(BaseNBFNet):
             "edge_weights": edge_weights,
         }
 
-    def forward(self, data, relation_representations, batch):
+    def forward(self, data, relation_representations, batch, user_embedding, item_embedding):
         h_index, t_index, r_index = batch.unbind(-1)
 
         # initial query representations are those from the relation graph
@@ -197,9 +222,9 @@ class EntityNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, h_index[:, 0], r_index[:, 0])  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, h_index[:, 0], r_index[:, 0], user_embedding, item_embedding)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
-        index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])
+        index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states
         feature = feature.gather(1, index)  # (batch_size, num_negative + 1, feature_dim)
 
