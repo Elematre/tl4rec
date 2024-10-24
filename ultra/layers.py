@@ -57,8 +57,10 @@ class GeneralizedRelationalConv(MessagePassing):
             else:
                 # will be initialized after the pass over relation graph
                 self.relation = None
+                # instead of adding zeros to the query we could change the projection here
+                # at the moment its hardcoded
                 self.relation_projection = nn.Sequential(
-                    nn.Linear(input_dim, input_dim),
+                    nn.Linear(16, input_dim),
                     nn.ReLU(),
                     nn.Linear(input_dim, input_dim)
                 )

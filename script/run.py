@@ -262,7 +262,7 @@ if __name__ == "__main__":
 
     model = Ultra(
         rel_model_cfg=cfg.model.relation_model,
-        entity_model_cfg=cfg.model.entity_model,
+        entity_model_cfg=cfg.model.entity_model
     )
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:

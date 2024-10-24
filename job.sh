@@ -53,7 +53,7 @@ conda info --envs
 cd ${DIRECTORY}
 
 # Execute your code
-python script/run.py -c config/transductive/inference.yaml --dataset MovieLens100k --epochs 0 --bpe null --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/ultra_4g.pth
+python script/run.py -c config/transductive/inference.yaml --dataset MovieLens100k --epochs 10 --bpe 8000 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
