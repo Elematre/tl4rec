@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from . import tasks, layers
 from ultra.base_nbfnet import BaseNBFNet
@@ -11,8 +12,8 @@ class Ultra(nn.Module):
         super(Ultra, self).__init__()
 
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
-        self.item_embedding = nn.Linear(18, 16)
-        self.user_embedding = nn.Linear(24, 16)
+        self.item_mlp = MLP(input_dim = 18, hidden_dim = 16, output_dim = 16)
+        self.user_mlp = MLP(input_dim = 24, hidden_dim = 16, output_dim = 16)
         #globals() contains all global class variable 
         #rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
         #**rel_model_cfg contains dict of cfg file
@@ -22,8 +23,8 @@ class Ultra(nn.Module):
         
     def forward(self, data, batch):
         #calculate embeddings
-        user_embedding = self.user_embedding(data.x_user)  # shape: (num_users, 16)
-        item_embedding = self.item_embedding(data.x_item)
+        user_embedding = self.user_mlp(data.x_user)  # shape: (num_users, 16)
+        item_embedding = self.item_mlp(data.x_item)
         # batch shape: (bs, 1+num_negs, 3)
         # relations are the same all positive and negative triples, so we can extract only one from the first triple among 1+nug_negs
         query_rels = batch[:, 0, 2]
@@ -31,6 +32,19 @@ class Ultra(nn.Module):
         score = self.entity_model(data, relation_representations, batch, user_embedding, item_embedding)
         
         return score
+
+
+# Define a standart MLP class with two layers
+class MLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
 
 # NBFNet to work on the graph of relations with 4 fundamental interactions
@@ -158,7 +172,7 @@ class EntityNBFNet(BaseNBFNet):
         boundary = torch.zeros(batch_size, data.num_nodes, self.dims[0], device=h_index.device)  # size is 32 (16 + 16)
         
         # Append node embeddings for all nodes (user and item)
-        embedding_index= int (self.dims[0]/2)
+        embedding_index= int (self.dims[0]/2) # TODO
         all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
         boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
         
