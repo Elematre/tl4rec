@@ -1,0 +1,13 @@
+Running on node: tikgpu02
+In directory: /tmp/tmp.dc1s5F4OVP
+Starting on: Fri Oct 25 15:24:38 CEST 2024
+SLURM_JOB_ID: 1057683
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+rel graph is built
+Load rspmm extension. This may take a while...
