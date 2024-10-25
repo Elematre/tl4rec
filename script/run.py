@@ -42,6 +42,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     num_params = sum(p.numel() for p in model.parameters())
     logger.warning(line)
     logger.warning(f"Number of parameters: {num_params}")
+    wandb.config.num_params = num_params
 
     if world_size > 1:
         parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
@@ -85,6 +86,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
                     logger.warning("binary cross entropy: %g" % loss)
+                    wandb.log({"training/loss": loss})
                 losses.append(loss.item())
                 batch_id += 1
 
@@ -108,7 +110,11 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
-        result = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger)
+        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+        # Log each metric with the hierarchical key format "training/performance/{metric}"
+        for metric, score in result_dict.items():
+            wandb.log({f"training/performance/{metric}": score})
+        result = result_dict["mrr"]
         if result > best_result:
             best_result = result
             best_epoch = epoch
@@ -223,9 +229,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
-            wandb.log({f"performance/{metric}": score})
     mrr = (1 / all_ranking.float()).mean()
-    wandb.log({"performance/mrr": mrr})
 
     return mrr if not return_metrics else metrics
 
@@ -271,7 +275,7 @@ if __name__ == "__main__":
 
     #model = pyg.compile(model, dynamic=True)
     model = model.to(device)
-    wandb.watch(model, log="all", log_freq=100)
+    wandb.watch(model, log= None)
  
     
     
@@ -309,8 +313,17 @@ if __name__ == "__main__":
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on valid")
-    test(cfg, model, valid_data, filtered_data=val_filtered_data, device=device, logger=logger)
+    result = test(cfg, model, valid_data, filtered_data=val_filtered_data, device=device, logger=logger, return_metrics = True)
+    # Log each metric with the hierarchical key format "training/performance/{metric}"
+    for metric, score in result.items():
+        wandb.summary[f"validation/performance/{metric}"] = score
+
+        
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")
-    test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger)
+    result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics = True)
+    
+    # Log each metric with the hierarchical key format "training/performance/{metric}"
+    for metric, score in result.items():
+        wandb.summary[f"test/performance/{metric}"] = score
