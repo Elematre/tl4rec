@@ -4,6 +4,7 @@ dataset:
   class: {{ dataset }}
   root: ~/git/ULTRA/kg-datasets/
 
+#the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
 model:
   class: Ultra
   relation_model:
@@ -16,14 +17,20 @@ model:
     layer_norm: yes
   entity_model:
     class: EntityNBFNet
-    input_emb_dim: 16
-    input_rel_dim: 16
     input_dim: 32
     hidden_dims: [32, 32, 32, 32, 32]
     message_func: distmult
     aggregate_func: sum
     short_cut: yes
     layer_norm: yes
+  embedding_user:
+    input_dim: 24
+    hidden_dims: [16, 16]
+  embedding_item:
+    input_dim: 18
+    hidden_dims: [16, 16]
+    
+
 
 task:
   name: TransductiveInference
@@ -37,7 +44,7 @@ optimizer:
   lr: 5.0e-4
 
 train:
-  gpus: {{ gpus }}
+  gpus: [{{ gpus }}]
   batch_size: 8
   num_epoch: {{ epochs }}
   log_interval: 100

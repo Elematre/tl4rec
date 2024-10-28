@@ -7,13 +7,13 @@ from ultra.base_nbfnet import BaseNBFNet
 
 class Ultra(nn.Module):
 
-    def __init__(self, rel_model_cfg, entity_model_cfg):
+    def __init__(self, rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg):
         # kept that because super Ultra sounds cool
         super(Ultra, self).__init__()
 
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
-        self.item_mlp = MLP(input_dim = 18, hidden_dim = 16, output_dim = 16)
-        self.user_mlp = MLP(input_dim = 24, hidden_dim = 16, output_dim = 16)
+        self.item_mlp = MLP(**embedding_item_cfg)
+        self.user_mlp = MLP(**embedding_user_cfg)
         #globals() contains all global class variable 
         #rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
         #**rel_model_cfg contains dict of cfg file
@@ -34,18 +34,28 @@ class Ultra(nn.Module):
         return score
 
 
-# Define a standart MLP class with two layers
+# Define a standart MLP class
 class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dims):
         super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
+        
+        layers = []
+        in_dim = input_dim
+        for h_dim in hidden_dims:
+            layers.append(nn.Linear(in_dim, h_dim))
+            in_dim = h_dim  # Update input dimension for the next layer
+        
+        
+        # Store layers in a ModuleList for registration and forward pass
+        self.layers = nn.ModuleList(layers)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        # Apply each layer with ReLU, except the final layer
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i < len(self.layers) - 1:  # Skip ReLU on the last layer
+                x = F.relu(x)
         return x
-
 
 # NBFNet to work on the graph of relations with 4 fundamental interactions
 # Doesn't have the final projection MLP from hidden dim -> 1, returns all node representations 
@@ -129,7 +139,7 @@ class EntityNBFNet(BaseNBFNet):
 
         # dummy num_relation = 1 as we won't use it in the NBFNet layer
         super().__init__(input_dim, hidden_dims, num_relation, **kwargs)
-
+        
         self.layers = nn.ModuleList()
         for i in range(len(self.dims) - 1):
             self.layers.append(
