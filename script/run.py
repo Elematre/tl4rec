@@ -264,9 +264,12 @@ if __name__ == "__main__":
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)
 
+
     model = Ultra(
-        rel_model_cfg=cfg.model.relation_model,
-        entity_model_cfg=cfg.model.entity_model
+        rel_model_cfg= cfg.model.relation_model,
+        entity_model_cfg= cfg.model.entity_model,
+        embedding_user_cfg = cfg.model.embedding_user,
+        embedding_item_cfg = cfg.model.embedding_item
     )
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
