@@ -23,6 +23,7 @@ model:
     aggregate_func: sum
     short_cut: yes
     layer_norm: yes
+  # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
   embedding_user:
     input_dim: 24
     hidden_dims: [16, 16]
