@@ -22,6 +22,7 @@ from ultra.models import Ultra
 
 separator = ">" * 30
 line = "-" * 30
+wandb_on = False
 
 
 def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
@@ -42,7 +43,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     num_params = sum(p.numel() for p in model.parameters())
     logger.warning(line)
     logger.warning(f"Number of parameters: {num_params}")
-    wandb.config.num_params = num_params
+    if wandb_on: 
+        wandb.config.num_params = num_params
 
     if world_size > 1:
         parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
@@ -86,7 +88,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
                     logger.warning("binary cross entropy: %g" % loss)
-                    wandb.log({"training/loss": loss})
+                    if wandb_on:
+                        wandb.log({"training/loss": loss})
                 losses.append(loss.item())
                 batch_id += 1
 
@@ -112,8 +115,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             logger.warning("Evaluate on valid")
         result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
-        for metric, score in result_dict.items():
-            wandb.log({f"training/performance/{metric}": score})
+        if wandb_on:
+            for metric, score in result_dict.items():
+                wandb.log({f"training/performance/{metric}": score})
         result = result_dict["mrr"]
         if result > best_result:
             best_result = result
@@ -252,8 +256,9 @@ if __name__ == "__main__":
     dataset_name = cfg.dataset["class"]
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     run_name = f"run-{dataset_name}-{current_time}"
-    wandb.init(
-        entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+    if wandb_on:
+        wandb.init(
+            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
         
     task_name = cfg.task["name"]
     dataset = util.build_dataset(cfg)
@@ -264,10 +269,17 @@ if __name__ == "__main__":
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)
 
+    # entity_model needs to know the dimensions of the relation model
+    
+    rel_model_cfg= cfg.model.relation_model
+    entity_model_cfg= cfg.model.entity_model
+    # assuming the entity model has the same dimensions in every layer
+    entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
+
 
     model = Ultra(
-        rel_model_cfg= cfg.model.relation_model,
-        entity_model_cfg= cfg.model.entity_model,
+        rel_model_cfg= rel_model_cfg,
+        entity_model_cfg= entity_model_cfg,
         embedding_user_cfg = cfg.model.embedding_user,
         embedding_item_cfg = cfg.model.embedding_item
     )
@@ -278,7 +290,8 @@ if __name__ == "__main__":
 
     #model = pyg.compile(model, dynamic=True)
     model = model.to(device)
-    wandb.watch(model, log= None)
+    if wandb_on:
+        wandb.watch(model, log= None)
  
     
     
@@ -318,8 +331,9 @@ if __name__ == "__main__":
         logger.warning("Evaluate on valid")
     result = test(cfg, model, valid_data, filtered_data=val_filtered_data, device=device, logger=logger, return_metrics = True)
     # Log each metric with the hierarchical key format "training/performance/{metric}"
-    for metric, score in result.items():
-        wandb.summary[f"validation/performance/{metric}"] = score
+    if wandb_on:
+        for metric, score in result.items():
+            wandb.summary[f"validation/performance/{metric}"] = score
 
         
     if util.get_rank() == 0:
@@ -328,5 +342,6 @@ if __name__ == "__main__":
     result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics = True)
     
     # Log each metric with the hierarchical key format "training/performance/{metric}"
-    for metric, score in result.items():
-        wandb.summary[f"test/performance/{metric}"] = score
+    if wandb_on:
+        for metric, score in result.items():
+            wandb.summary[f"test/performance/{metric}"] = score

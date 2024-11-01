@@ -22,7 +22,7 @@ class GeneralizedRelationalConv(MessagePassing):
     # propagate_type = {"edge_index": torch.LongTensor, "size": Tuple[int, int]}
 
     def __init__(self, input_dim, output_dim, num_relation, query_input_dim, message_func="distmult",
-                 aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_relations=False):
+                 aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_relations=False, relation_input_dim = 0):
         super(GeneralizedRelationalConv, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -32,6 +32,7 @@ class GeneralizedRelationalConv(MessagePassing):
         self.aggregate_func = aggregate_func
         self.dependent = dependent
         self.project_relations = project_relations
+        self.relation_input_dim = relation_input_dim
 
         if layer_norm:
             self.layer_norm = nn.LayerNorm(output_dim)
@@ -60,7 +61,7 @@ class GeneralizedRelationalConv(MessagePassing):
                 # instead of adding zeros to the query we could change the projection here
                 # at the moment its hardcoded
                 self.relation_projection = nn.Sequential(
-                    nn.Linear(16, input_dim),
+                    nn.Linear(self.relation_input_dim, input_dim),
                     nn.ReLU(),
                     nn.Linear(input_dim, input_dim)
                 )
