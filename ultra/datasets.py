@@ -205,6 +205,9 @@ def FB15k237(root):
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
+
+    
+
 def MovieLens100k(root):
         # load dataset
         dataset = MovieLens100K(root=root+"/movieLens100k/")
@@ -232,7 +235,8 @@ def MovieLens100k(root):
         # Shuffle the edges
         perm = torch.randperm(data_size)  
         edge_index = edge_index[:, perm] 
-        ratings = ratings[perm] 
+        edge_type = torch.zeros(edge_index.size(1), dtype=torch.int64)
+        # ratings = ratings[perm] 
     
         # Split the dataset (80% train, 10% validation, 10% test)
         train_size = int(data_size * 0.8)
@@ -240,24 +244,29 @@ def MovieLens100k(root):
         test_size = data_size - train_size - valid_size
       
         train_target_edges = edge_index[:, :train_size]
-        train_ratings = ratings[:train_size]
+        train_types= edge_type[:train_size]
+        # train_ratings = ratings[:train_size]
     
         valid_edges = edge_index[:, train_size:train_size + valid_size]
-        valid_ratings = ratings[train_size:train_size + valid_size]
+        valid_types = edge_type[train_size:train_size + valid_size]
+        # valid_ratings = ratings[train_size:train_size + valid_size]
         
         test_edges = edge_index[:, train_size + valid_size: data_size]
-        test_ratings = ratings[train_size + valid_size: data_size]
+        test_types = edge_type[train_size + valid_size: data_size]
+        # test_ratings = ratings[train_size + valid_size: data_size]
 
 
         # Combine original train edges and reversed train edges
         train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=-1)
+        train_edge_types= torch.cat([train_types, train_types + 1], dim=0)
     
         # Combine the ratings (use the different ratings for reversed edges --> adding 5 this would else create problems )
-        train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
+        # train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
+        
     
         num_node = dataset[0].num_nodes
         # ratings are betweeen 1 and 5 and we double it thus 10 rels
-        num_relations = 10
+        num_relations = 2
     
         # instead of hardcoding num_relations
         # Find the unique ratings
@@ -267,13 +276,13 @@ def MovieLens100k(root):
     
     
         # Construct PyG Data objects
-        train_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, 
-                          num_nodes=num_node, target_edge_index=train_target_edges, target_edge_type=train_ratings, num_relations = num_relations)
+        train_data = Data(edge_index=train_edges, edge_type=train_edge_types, 
+                          num_nodes=num_node, target_edge_index=train_target_edges, target_edge_type=train_types, num_relations = num_relations)
         
-        valid_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, num_nodes=num_node,
-                              target_edge_index=valid_edges, target_edge_type=valid_ratings, num_relations=num_relations)
-        test_data = Data(edge_index=train_edges, edge_type=train_ratings_combined, num_nodes=num_node,
-                             target_edge_index=test_edges, target_edge_type=test_ratings, num_relations=num_relations)
+        valid_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_node,
+                              target_edge_index=valid_edges, target_edge_type=valid_types, num_relations=num_relations)
+        test_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_node,
+                             target_edge_index=test_edges, target_edge_type=test_types, num_relations=num_relations)
     
 
         
@@ -302,6 +311,7 @@ def MovieLens100k(root):
         dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
         #raise ValueError("abort.")
         return dataset
+
 
 def WN18RR(root):
     dataset = WordNet18RR(root=root+"/wn18rr/")

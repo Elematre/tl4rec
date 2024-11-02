@@ -2,6 +2,7 @@ from functools import reduce
 from torch_scatter import scatter_add
 from torch_geometric.data import Data
 import torch
+import random
 
 
 def edge_match(edge_index, query_index):
@@ -37,6 +38,74 @@ def edge_match(edge_index, query_index):
     range = range + (start - offset).repeat_interleave(num_match)
 
     return order[range], num_match
+
+
+
+# needs to be optimized
+def negative_sampling1(data, batch, num_negative, strict=True):
+    """
+    Generate negative samples for a batch of triples, avoiding edges that already exist in the graph.
+
+    Returns:
+        Tensor: A tensor of shape [batch_size, num_negative + 1, 3] with positive and negative samples.
+    """
+    
+    batch_size = len(batch)
+    pos_h_index, pos_t_index, pos_r_index = batch.t()
+    num_items = data.num_items
+    num_users = data.num_users
+
+    # If strict sampling is enabled, avoid sampling edges already present in the graph
+    if strict:
+        # Convert existing edges to a set for fast lookups
+        existing_edges = set((data.edge_index[0, i].item(), data.edge_index[1, i].item())
+                             for i in range(data.edge_index.size(1)))
+
+        neg_t_index = []
+        neg_h_index = []
+
+        # Generate negative tail samples for the first half of the batch
+        for h in pos_h_index[:batch_size // 2]:
+            h = h.item()
+            tail_negatives = set()  
+
+            while len(tail_negatives) < num_negative:
+                # Randomly sample a tail node and check if (h, t) exists
+                t_neg = random.randint(num_users, num_users + num_items - 1)
+                if (h, t_neg) not in existing_edges:
+                    tail_negatives.add(t_neg)
+            neg_t_index.append(list(tail_negatives))
+
+        # Generate negative head samples for the second half of the batch
+        for t in pos_t_index[batch_size // 2:]:
+            t = t.item()
+            head_negatives = set()
+
+            while len(head_negatives) < num_negative:
+                h_neg = random.randint(0, data.num_users - 1)
+                if (h_neg, t) not in existing_edges:
+                    head_negatives.add(h_neg)
+            neg_h_index.append(list(head_negatives))
+
+        # Convert to tensors
+        neg_t_index = torch.tensor(neg_t_index, device=batch.device)
+        neg_h_index = torch.tensor(neg_h_index, device=batch.device)
+        neg_t_index = neg_t_index.view(batch_size // 2, num_negative)
+        neg_h_index = neg_h_index.view(batch_size - (batch_size // 2), num_negative)
+
+    else:
+        # Random negative sampling without checking for existence in graph
+        neg_index = torch.randint(data.num_nodes, (batch_size, num_negative), device=batch.device)
+        neg_t_index, neg_h_index = neg_index[:batch_size // 2], neg_index[batch_size // 2:]
+
+    h_index = pos_h_index.unsqueeze(-1).repeat(1, num_negative + 1)
+    t_index = pos_t_index.unsqueeze(-1).repeat(1, num_negative + 1)
+    r_index = pos_r_index.unsqueeze(-1).repeat(1, num_negative + 1)
+    t_index[:batch_size // 2, 1:] = neg_t_index
+    h_index[batch_size // 2:, 1:] = neg_h_index
+
+    return torch.stack([h_index, t_index, r_index], dim=-1)
+
 
 
 def negative_sampling(data, batch, num_negative, strict=True):
@@ -92,10 +161,12 @@ def all_negative(data, batch):
 
 
 def strict_negative_mask(data, batch):
+    # update we want to sample only nodes which are not in the graph at all
     # this function makes sure that for a given (h, r) batch we will NOT sample true tails as random negatives
     # similarly, for a given (t, r) we will NOT sample existing true heads as random negatives
 
     pos_h_index, pos_t_index, pos_r_index = batch.t()
+    num_relations = data.num_relations
 
     # part I: sample hard negative tails
     # edge index of all (head, relation) edges from the underlying graph
