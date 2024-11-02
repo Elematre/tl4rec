@@ -1,0 +1,73 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+13:18:38   Random seed: 1024
+13:18:38   Config file: config/recommender/first_steps.yaml
+13:18:38   {'checkpoint': None,
+ 'dataset': {'class': 'MovieLens100k', 'root': '~/git/ULTRA/kg-datasets/'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [48, 48, 48, 48, 48, 48],
+                            'input_dim': 48,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [16, 16, 16, 16],
+                              'input_dim': 16,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True}},
+ 'optimizer': {'class': 'AdamW', 'lr': 0.0005},
+ 'output_dir': '~/git/ULTRA/output',
+ 'task': {'adversarial_temperature': 1,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10'],
+          'name': 'TransductiveInference',
+          'num_negative': 256,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 8000,
+           'batch_size': 8,
+           'gpus': [0],
+           'log_interval': 100,
+           'num_epoch': 25}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/MovieLens100k/2024-11-02-13-18-38/wandb/run-20241102_131839-nn5u8cq4
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-MovieLens100k-2024-11-02_13-18
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/nn5u8cq4
+/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/tasks.py:265: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at /opt/conda/conda-bld/pytorch_1695392022560/work/aten/src/ATen/SparseCsrTensorImpl.cpp:53.)
+  Ahh = torch.sparse.mm(EhT, Eh).coalesce()
+13:18:42   MovieLens100k dataset
+13:18:42   #train: 64000, #valid: 8000, #test: 8000
+13:18:43   ------------------------------
+13:18:43   Number of parameters: 62945
+13:18:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:18:43   Epoch 0 begin
+Traceback (most recent call last):
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 438, in <module>
+    train_and_validate(cfg, model, train_data, valid_data, filtered_data=val_filtered_data, device=device, batch_per_epoch=cfg.train.batch_per_epoch, logger=logger)
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 181, in train_and_validate
+    pred = parallel_model(train_data, batch)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 42, in forward
+    score = self.entity_model(data, relation_representations, batch, user_embedding, item_embedding)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 260, in forward
+    output = self.bellmanford(data, h_index[:, 0], r_index[:, 0], user_embedding, item_embedding)  # (num_nodes, batch_size, feature_dim）
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 198, in bellmanford
+    boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
+RuntimeError: The expanded size of the tensor (24) must match the existing size (32) at non-singleton dimension 2.  Target sizes: [8, 2625, 24].  Tensor sizes: [2625, 32]

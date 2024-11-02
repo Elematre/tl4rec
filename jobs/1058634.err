@@ -2,22 +2,24 @@
 
 To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
   deprecated.topic(
-12:43:02   Random seed: 1024
-12:43:02   Config file: config/transductive/inference.yaml
-12:43:02   {'checkpoint': None,
+13:31:45   Random seed: 1024
+13:31:45   Config file: config/recommender/first_steps.yaml
+13:31:45   {'checkpoint': None,
  'dataset': {'class': 'MovieLens100k', 'root': '~/git/ULTRA/kg-datasets/'},
  'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
            'entity_model': {'aggregate_func': 'sum',
                             'class': 'EntityNBFNet',
-                            'hidden_dims': [64, 64, 64, 64, 64, 64],
-                            'input_dim': 64,
+                            'hidden_dims': [48, 48, 48, 48, 48, 48],
+                            'input_dim': 48,
                             'layer_norm': True,
                             'message_func': 'distmult',
                             'short_cut': True},
            'relation_model': {'aggregate_func': 'sum',
                               'class': 'RelNBFNet',
-                              'hidden_dims': [64, 64, 64, 64, 64, 64],
-                              'input_dim': 64,
+                              'hidden_dims': [16, 16, 16, 16],
+                              'input_dim': 16,
                               'layer_norm': True,
                               'message_func': 'distmult',
                               'short_cut': True}},
@@ -32,21 +34,21 @@ To remove this warning, please choose a default channel explicitly via 'conda co
            'batch_size': 8,
            'gpus': [[0]],
            'log_interval': 100,
-           'num_epoch': 10}}
+           'num_epoch': 25}}
 wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
 wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
 wandb: Tracking run with wandb version 0.18.5
-wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/MovieLens100k/2024-10-22-12-43-02/wandb/run-20241022_124303-5jq7ykc4
+wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/MovieLens100k/2024-11-02-13-31-45/wandb/run-20241102_133146-evne8vdt
 wandb: Run `wandb offline` to turn off syncing.
-wandb: Syncing run run-MovieLens100k-2024-10-22_12-43
+wandb: Syncing run run-MovieLens100k-2024-11-02_13-31
 wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
-wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/5jq7ykc4
-/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/tasks.py:194: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at /opt/conda/conda-bld/pytorch_1695392022560/work/aten/src/ATen/SparseCsrTensorImpl.cpp:53.)
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/evne8vdt
+/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/tasks.py:265: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at /opt/conda/conda-bld/pytorch_1695392022560/work/aten/src/ATen/SparseCsrTensorImpl.cpp:53.)
   Ahh = torch.sparse.mm(EhT, Eh).coalesce()
-12:43:07   MovieLens100k dataset
-12:43:07   #train: 64000, #valid: 8000, #test: 8000
+13:31:49   MovieLens100k dataset
+13:31:49   #train: 64000, #valid: 8000, #test: 8000
 Traceback (most recent call last):
-  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 256, in <module>
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 375, in <module>
     device = util.get_device(cfg)
   File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/util.py", line 107, in get_device
     device = torch.device(cfg.train.gpus[get_rank()])
