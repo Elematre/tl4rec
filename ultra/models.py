@@ -5,24 +5,34 @@ import torch.nn.functional as F
 from . import tasks, layers
 from ultra.base_nbfnet import BaseNBFNet
 
+class Grutz(nn.Module):
+    def __init__(self, rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg):
+        super(MLP, self).__init__()
+        
+        self.ultra = Ultra(rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg)
+    def forward(self, data, batch):
+        return None
+        
+
 class Ultra(nn.Module):
 
     def __init__(self, rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg):
         # kept that because super Ultra sounds cool
         super(Ultra, self).__init__()
-
-        # adding a bit more flexibility to initializing proper rel/ent classes from the configs
+        
+        # MLP's for obtaining item/user emb.
         self.item_mlp = MLP(**embedding_item_cfg)
         self.user_mlp = MLP(**embedding_user_cfg)
-        #globals() contains all global class variable 
-        #rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
-        #**rel_model_cfg contains dict of cfg file
+        # adding a bit more flexibility to initializing proper rel/ent classes from the configs
+        # globals() contains all global class variable 
+        # rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
+        # **rel_model_cfg contains dict of cfg file
         self.relation_model = globals()[rel_model_cfg.pop('class')](**rel_model_cfg)
         self.entity_model = globals()[entity_model_cfg.pop('class')](**entity_model_cfg)
 
         
     def forward(self, data, batch):
-        #calculate embeddings
+        # calculate embeddings
         user_embedding = self.user_mlp(data.x_user)  # shape: (num_users, 16)
         item_embedding = self.item_mlp(data.x_item)
         # batch shape: (bs, 1+num_negs, 3)
@@ -30,6 +40,7 @@ class Ultra(nn.Module):
         query_rels = batch[:, 0, 2]
         relation_representations = self.relation_model(data.relation_graph, query=query_rels)
         score = self.entity_model(data, relation_representations, batch, user_embedding, item_embedding)
+        # what does score look like? score (batch_size, 1 + num negatives)
         
         return score
 
@@ -139,7 +150,7 @@ class EntityNBFNet(BaseNBFNet):
 
         # dummy num_relation = 1 as we won't use it in the NBFNet layer
         super().__init__(input_dim, hidden_dims, num_relation, **kwargs)
-        
+
         self.layers = nn.ModuleList()
         for i in range(len(self.dims) - 1):
             self.layers.append(
@@ -165,8 +176,10 @@ class EntityNBFNet(BaseNBFNet):
         # initialize queries (relation types of the given triples)
         # Must adjust size of queries since we add the 16 bit embeddings 
         # in the hidden layers we project (expected input dim) the queries for further calculations
+        input_dim = self.dims[0]
         query_temp = self.query[torch.arange(batch_size, device=r_index.device), r_index]  # (8, 16)
-        zeros = torch.zeros(8, 16, dtype=query_temp.dtype, device=r_index.device)  # Create zeros on the same device as r_index
+        query_size = query_temp.size(1)
+        zeros = torch.zeros(batch_size, input_dim - query_size, dtype=query_temp.dtype, device=r_index.device)  # Create zeros on the same device as r_index
         query = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
         
         index = h_index.unsqueeze(-1).expand_as(query)
@@ -179,10 +192,10 @@ class EntityNBFNet(BaseNBFNet):
         # boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))
 
         # Initialize all node states as zeros
-        boundary = torch.zeros(batch_size, data.num_nodes, self.dims[0], device=h_index.device)  # size is 32 (16 + 16)
+        boundary = torch.zeros(batch_size, data.num_nodes, input_dim, device=h_index.device)  # size is 32 (16 + 16)
         
         # Append node embeddings for all nodes (user and item)
-        embedding_index= int (self.dims[0]/2) # TODO
+        embedding_index= query_size # TODO
         all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
         boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
         
