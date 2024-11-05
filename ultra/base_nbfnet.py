@@ -76,14 +76,20 @@ class BaseNBFNet(nn.Module):
         data.edge_type = data.edge_type[mask]
         return data
 
-    def negative_sample_to_tail(self, h_index, t_index, r_index, num_direct_rel):
+    def negative_sample_to_tail(self, h_index, t_index, r_index, num_direct_rel, h_embeddings, t_embeddings):
         # convert p(h | t, r) to p(t' | h', r')
         # h' = t, r' = r^{-1}, t' = h
+        # checks where the head_node was corrupted. is_t_neg is a (bs,1) tensor indicating True if all head_nodes in a batch unit have the same headnode
+        
         is_t_neg = (h_index == h_index[:, [0]]).all(dim=-1, keepdim=True)
+        # if cond = true take x and if false take y, for where(cond, x ,y)
+        # thus in a row if all heads are the same we dont swap
         new_h_index = torch.where(is_t_neg, h_index, t_index)
         new_t_index = torch.where(is_t_neg, t_index, h_index)
         new_r_index = torch.where(is_t_neg, r_index, r_index + num_direct_rel)
-        return new_h_index, new_t_index, new_r_index
+        new_h_embeddings = torch.where(is_t_neg.unsqueeze(-1), h_embeddings, t_embeddings)
+        
+        return new_h_index, new_t_index, new_r_index, new_h_embeddings
 
     def bellmanford(self, data, h_index, r_index, separate_grad=False):
         batch_size = len(r_index)

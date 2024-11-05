@@ -22,7 +22,7 @@ from ultra.models import Ultra
 
 separator = ">" * 30
 line = "-" * 30
-wandb_on = True
+wandb_on = False
 
 def train_and_validate1(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
