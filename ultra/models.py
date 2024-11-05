@@ -170,7 +170,7 @@ class EntityNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, h_index, r_index, user_embedding, item_embedding, separate_grad=False):
+    def bellmanford(self, data, h_index, r_index, user_embedding, item_embedding, h_embeddings , separate_grad=False):
         batch_size = len(r_index)
 
         # initialize queries (relation types of the given triples)
@@ -180,7 +180,15 @@ class EntityNBFNet(BaseNBFNet):
         query_temp = self.query[torch.arange(batch_size, device=r_index.device), r_index]  # (8, 16)
         query_size = query_temp.size(1)
         zeros = torch.zeros(batch_size, input_dim - query_size, dtype=query_temp.dtype, device=r_index.device)  # Create zeros on the same device as r_index
-        query = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
+        
+
+        
+        # Compress h_embeddings to (batch_size, input_dim - query_size) by taking the first column since all head_embeddings are consistent in each batch
+        compressed_h_embeddings = h_embeddings[:, 0, :]
+        
+        query = torch.cat([query_temp, compressed_h_embeddings], dim=1)
+
+        query_zero = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
         
         index = h_index.unsqueeze(-1).expand_as(query)
 
@@ -199,8 +207,9 @@ class EntityNBFNet(BaseNBFNet):
         all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
         boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
         
-        boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))  # Add relation embeddings to the first 16 entries
-
+        boundary.scatter_add_(1, index.unsqueeze(1), query_zero.unsqueeze(1))  # Add relation embeddings to the first 16 entries
+        
+        
         
         size = (data.num_nodes, data.num_nodes)
         edge_weight = torch.ones(data.num_edges, device=h_index.device)
@@ -238,9 +247,13 @@ class EntityNBFNet(BaseNBFNet):
 
     def forward(self, data, relation_representations, batch, user_embedding, item_embedding):
         h_index, t_index, r_index = batch.unbind(-1)
+        batch_size = batch.shape[0]
+        num_users = user_embedding.shape[0]
+        embedding_dim = user_embedding.shape[-1]
 
         # initial query representations are those from the relation graph
-        self.query = relation_representations
+        self.query = relation_representations # (bs, num_relations ,input_dim)
+
 
         # initialize relations in each NBFNet layer (with uinque projection internally)
         for layer in self.layers:
@@ -252,14 +265,34 @@ class EntityNBFNet(BaseNBFNet):
             # to make NBFNet iteration learn non-trivial paths
             data = self.remove_easy_edges(data, h_index, t_index, r_index)
 
+        
+        # gather the head/tail_node embeddings such that h_embeddings.shape = (bs, 1 + num_neg, emb_dim)
+        # note orignally we only have user item edges but due to corruption we have may have user-user, item-item edges
+        # we dont care about those since we are only interested in the incorrupted embeddings
+        # some corrupted h_index may be > num_user - 1
+        index_temp = h_index.clamp(max= num_users - 1).unsqueeze(-1).expand(-1,-1, embedding_dim)
+        h_embeddings = user_embedding.unsqueeze(0).expand(batch_size,-1,-1).gather(1,index_temp)
+        
+        # some corrupted nodes may be smaller than num_users
+        index_temp = (t_index - num_users).clamp(min=0).unsqueeze(-1).expand(-1,-1, embedding_dim)
+        t_embeddings = item_embedding.unsqueeze(0).expand(batch_size,-1,-1).gather(1,index_temp)
+
+        
+        
         shape = h_index.shape
         # turn all triples in a batch into a tail prediction mode
-        h_index, t_index, r_index = self.negative_sample_to_tail(h_index, t_index, r_index, num_direct_rel=data.num_relations // 2)
+        h_index, t_index, r_index, h_embeddings   = self.negative_sample_to_tail(h_index, t_index, r_index,
+                                                                                               num_direct_rel=data.num_relations // 2,
+                                                                                               h_embeddings=h_embeddings,
+                                                                                               t_embeddings=t_embeddings)
+        
+        # I really dont understand how we pass this check if we check that every batch row has identical head node ?!!?!
+        # Answer: Every batch row has either corrupted head node or tail node not both in the negative samples
         assert (h_index[:, [0]] == h_index).all()
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, h_index[:, 0], r_index[:, 0], user_embedding, item_embedding)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, h_index[:, 0], r_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states

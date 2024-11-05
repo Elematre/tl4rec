@@ -59,7 +59,6 @@ class GeneralizedRelationalConv(MessagePassing):
                 # will be initialized after the pass over relation graph
                 self.relation = None
                 # instead of adding zeros to the query we could change the projection here
-                # at the moment its hardcoded
                 self.relation_projection = nn.Sequential(
                     nn.Linear(self.relation_input_dim, input_dim),
                     nn.ReLU(),
@@ -80,7 +79,8 @@ class GeneralizedRelationalConv(MessagePassing):
             else:
                 # NEW and only change: 
                 # projecting relation features to unique features for this layer, then resizing for the current batch
-                relation = self.relation_projection(self.relation)
+                relation = self.relation_projection(self.relation) 
+                # relation : (bs, num_relation, input_dim)
         if edge_weight is None:
             edge_weight = torch.ones(len(edge_type), device=input.device)
 
