@@ -107,7 +107,7 @@ def negative_sampling1(data, batch, num_negative, strict=True):
     return torch.stack([h_index, t_index, r_index], dim=-1)
 
 
-
+# TODO should not sample user-user or item-item edges
 def negative_sampling(data, batch, num_negative, strict=True):
     batch_size = len(batch)
     pos_h_index, pos_t_index, pos_r_index = batch.t()
