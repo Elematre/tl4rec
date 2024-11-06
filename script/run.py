@@ -22,7 +22,7 @@ from ultra.models import Ultra
 
 separator = ">" * 30
 line = "-" * 30
-wandb_on = False
+wandb_on = True
 
 def train_and_validate1(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
@@ -429,7 +429,7 @@ if __name__ == "__main__":
             )
     else:
         # for transductive setting, use the whole graph for filtered ranking
-        filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations)
+        filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
         val_filtered_data = test_filtered_data = filtered_data
     
     val_filtered_data = val_filtered_data.to(device)

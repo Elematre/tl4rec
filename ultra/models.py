@@ -143,7 +143,7 @@ class RelNBFNet(BaseNBFNet):
         
         return output
     
-
+# note I disabeled projections of relations
 class EntityNBFNet(BaseNBFNet):
 
     def __init__(self, input_dim, hidden_dims, relation_input_dim, num_relation=1, **kwargs):
@@ -157,7 +157,7 @@ class EntityNBFNet(BaseNBFNet):
                 layers.GeneralizedRelationalConv(
                     self.dims[i], self.dims[i + 1], num_relation,
                     self.dims[0], self.message_func, self.aggregate_func, self.layer_norm,
-                    self.activation, dependent=False, project_relations=True, relation_input_dim = relation_input_dim)
+                    self.activation, dependent=False, project_relations=False, relation_input_dim = relation_input_dim)
             )
 
         feature_dim = (sum(hidden_dims) if self.concat_hidden else hidden_dims[-1]) + input_dim
