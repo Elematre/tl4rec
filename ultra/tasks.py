@@ -106,6 +106,28 @@ def negative_sampling1(data, batch, num_negative, strict=True):
 
     return torch.stack([h_index, t_index, r_index], dim=-1)
 
+def validate_indices(h_index, t_index, num_users, num_items):
+    # Ensure h_index is between 0 and num_users - 1 for the second dimension
+    h_valid = (h_index[:, 1:] >= 0) & (h_index[:, 1:] < num_users)
+    
+    # Ensure t_index is between num_users and num_users + num_items - 1 for the second dimension
+    t_valid = (t_index[:, 1:] >= num_users) & (t_index[:, 1:] < num_users + num_items)
+    
+    # Check if all entries in h_index and t_index are valid
+    h_valid_check = h_valid.all().item()
+    t_valid_check = t_valid.all().item()
+
+    # Print out the results
+    if h_valid_check and t_valid_check:
+        print("All indices are valid.")
+    else:
+        if not h_valid_check:
+            raise ValueError("Invalid indices found in h_index.")
+        if not t_valid_check:
+            raise ValueError("Invalid indices found in t_index.")
+    
+    return h_valid_check, t_valid_check
+
 
 # TODO should not sample user-user or item-item edges
 def negative_sampling(data, batch, num_negative, strict=True):
@@ -116,12 +138,16 @@ def negative_sampling(data, batch, num_negative, strict=True):
     if strict:
         t_mask, h_mask = strict_negative_mask(data, batch)
         t_mask = t_mask[:batch_size // 2]
-        neg_t_candidate = t_mask.nonzero()[:, 1]
+        neg_t_candidate = t_mask.nonzero()[:, 1] # 1 since we are interested in the true COL indices
         num_t_candidate = t_mask.sum(dim=-1)
         # draw samples for negative tails
         rand = torch.rand(len(t_mask), num_negative, device=batch.device)
+        
         index = (rand * num_t_candidate.unsqueeze(-1)).long()
+        # now index is (bs//2, num_neg) containing a random index from 0 to number of matches for this batchrow h,r
+        # this calculates a correct offset since the are num_t_candidate entries in neg_t_candidate
         index = index + (num_t_candidate.cumsum(0) - num_t_candidate).unsqueeze(-1)
+
         neg_t_index = neg_t_candidate[index]
 
         h_mask = h_mask[batch_size // 2:]
@@ -141,6 +167,7 @@ def negative_sampling(data, batch, num_negative, strict=True):
     r_index = pos_r_index.unsqueeze(-1).repeat(1, num_negative + 1)
     t_index[:batch_size // 2, 1:] = neg_t_index
     h_index[batch_size // 2:, 1:] = neg_h_index
+    # validate_indices(h_index,t_index, data.num_users, data.num_items)
 
     return torch.stack([h_index, t_index, r_index], dim=-1)
 
@@ -167,14 +194,17 @@ def strict_negative_mask(data, batch):
 
     pos_h_index, pos_t_index, pos_r_index = batch.t()
     num_relations = data.num_relations
+    num_users = data.num_users
 
     # part I: sample hard negative tails
     # edge index of all (head, relation) edges from the underlying graph
-    edge_index = torch.stack([data.edge_index[0], data.edge_type])
+    edge_index = torch.stack([data.edge_index[0], data.edge_type]) # (2,num_edges)
     # edge index of current batch (head, relation) for which we will sample negatives
-    query_index = torch.stack([pos_h_index, pos_r_index])
+    query_index = torch.stack([pos_h_index, pos_r_index]) # (2,bs )
     # search for all true tails for the given (h, r) batch
     edge_id, num_t_truth = edge_match(edge_index, query_index)
+    # edge ids= ids of matched edges 
+    # num_t_truth num of matched edges per query size (bs)
     # build an index from the found edges
     t_truth_index = data.edge_index[1, edge_id]
     sample_id = torch.arange(len(num_t_truth), device=batch.device).repeat_interleave(num_t_truth)
@@ -182,6 +212,10 @@ def strict_negative_mask(data, batch):
     # assign 0s to the mask with the found true tails
     t_mask[sample_id, t_truth_index] = 0
     t_mask.scatter_(1, pos_t_index.unsqueeze(-1), 0)
+    # t_mask is (bs, num_nodes) with false at all tail indices which exist in the graph
+    # now we want to prevent from sampling users as tails thus 
+    t_mask[:, :num_users] = 0
+    
 
     # part II: sample hard negative heads
     # edge_index[1] denotes tails, so the edge index becomes (t, r)
@@ -197,6 +231,7 @@ def strict_negative_mask(data, batch):
     # assign 0s to the mask with the found true heads
     h_mask[sample_id, h_truth_index] = 0
     h_mask.scatter_(1, pos_h_index.unsqueeze(-1), 0)
+    h_mask[:, num_users:] = 0 
 
     return t_mask, h_mask
 

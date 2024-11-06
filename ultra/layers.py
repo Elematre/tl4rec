@@ -136,6 +136,7 @@ class GeneralizedRelationalConv(MessagePassing):
         return out
 
     def message(self, input_j, relation, boundary, edge_type):
+
         relation_j = relation.index_select(self.node_dim, edge_type)
 
         if self.message_func == "transe":

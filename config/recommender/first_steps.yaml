@@ -9,16 +9,16 @@ model:
   class: Ultra
   relation_model:
     class: RelNBFNet
-    input_dim: 16
-    hidden_dims: [16, 16]
+    input_dim: 8
+    hidden_dims: [8, 8]
     message_func: distmult
     aggregate_func: sum
     short_cut: yes
     layer_norm: yes
   entity_model:
     class: EntityNBFNet
-    input_dim: 40
-    hidden_dims: [40, 40, 40, 40,40]
+    input_dim: 32
+    hidden_dims: [32, 32, 32, 32,32]
     message_func: distmult
     aggregate_func: sum
     short_cut: yes
@@ -45,7 +45,7 @@ optimizer:
   lr: 5.0e-4
 
 train:
-  gpus: [{{ gpus }}]
+  gpus: {{ gpus }}
   batch_size: 8
   num_epoch: {{ epochs }}
   log_interval: 100
