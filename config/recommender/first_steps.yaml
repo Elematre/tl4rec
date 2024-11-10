@@ -18,35 +18,43 @@ model:
   entity_model:
     class: EntityNBFNet
     input_dim: 32
-    hidden_dims: [32, 32, 32, 32,32]
+    hidden_dims: [32, 32, 32, 32, 32]
     message_func: distmult
     aggregate_func: sum
     short_cut: yes
     layer_norm: yes
-  # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
+  simple_model:
+    class: SimpleNBFNet
+    input_dim: 40
+    hidden_dims: [40, 40, 40, 40, 40, 40, 40, 40]
+    message_func: distmult
+    aggregate_func: sum
+    short_cut: yes
+    layer_norm: yes
+    # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
   embedding_user:
     input_dim: 24
-    hidden_dims: [24, 24]
+    hidden_dims: [32, 32]
   embedding_item:
     input_dim: 18
-    hidden_dims: [24, 24]
+    hidden_dims: [32, 32]
     
 
 
 task:
   name: TransductiveInference
-  num_negative: 256
+  num_negative: 2
   strict_negative: yes
   adversarial_temperature: 1
   metric: [mr, mrr, hits@1, hits@3, hits@10]
 
 optimizer:
   class: AdamW
-  lr: 5.0e-4
+  lr: 1.0e-3
 
 train:
   gpus: {{ gpus }}
-  batch_size: 8
+  batch_size: 64
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}

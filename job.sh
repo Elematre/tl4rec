@@ -5,7 +5,7 @@
 #SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:titan_rtx:1 
 #SBATCH --exclude=tikgpu10,tikgpu[06-09]
 #CommentSBATCH --nodelist=tikgpu01 # Specify that it should run on this particular node
 #CommentSBATCH --account=tik-internal
@@ -53,7 +53,7 @@ conda info --envs
 cd ${DIRECTORY}
 
 # Execute your code
-python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 15 --bpe 8000 --gpus "[0]" --ckpt null
+python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 12 --bpe 1000 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"

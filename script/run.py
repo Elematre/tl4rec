@@ -14,6 +14,8 @@ from torch.nn import functional as F
 from torch import distributed as dist
 from torch.utils import data as torch_data
 from torch_geometric.data import Data
+from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util
@@ -23,6 +25,8 @@ from ultra.models import Ultra
 separator = ">" * 30
 line = "-" * 30
 wandb_on = True
+gradient_clip = True
+init_linear_weights = True
 
 def train_and_validate1(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
@@ -149,7 +153,10 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     batch_per_epoch = batch_per_epoch or len(train_loader)
     
     cls = cfg.optimizer.pop("class")
-    optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
+    #optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=1.0e-3, alpha=0.99)
+    #scheduler = StepLR(optimizer, step_size= 4, gamma=0.5) 
+    #scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3, verbose=False)
     num_params = sum(p.numel() for p in model.parameters())
     logger.warning(line)
     logger.warning(f"Number of parameters: {num_params}")
@@ -192,6 +199,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 loss = loss.mean()
 
                 loss.backward()
+                # Apply gradient clipping
+                if gradient_clip:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -209,6 +219,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 logger.warning("Epoch %d end" % epoch)
                 logger.warning(line)
                 logger.warning("average binary cross entropy: %g" % avg_loss)
+                
+            
 
         epoch = min(cfg.train.num_epoch, i + step)
         if rank == 0:
@@ -229,6 +241,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             for metric, score in result_dict.items():
                 wandb.log({f"training/performance/{metric}": score})
         result = result_dict["mrr"]
+        #scheduler.step()
+        #scheduler.step(result) 
         if result > best_result:
             best_result = result
             best_epoch = epoch
@@ -386,13 +400,17 @@ if __name__ == "__main__":
     # assuming the entity model has the same dimensions in every layer
     entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
 
-
     model = Ultra(
-        rel_model_cfg= rel_model_cfg,
-        entity_model_cfg= entity_model_cfg,
+        simple_model_cfg = cfg.model.simple_model,
         embedding_user_cfg = cfg.model.embedding_user,
         embedding_item_cfg = cfg.model.embedding_item
     )
+    #model = Ultra(
+    #    rel_model_cfg= rel_model_cfg,
+     #   entity_model_cfg= entity_model_cfg,
+      #  embedding_user_cfg = cfg.model.embedding_user,
+       # embedding_item_cfg = cfg.model.embedding_item
+    #)
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
@@ -402,8 +420,15 @@ if __name__ == "__main__":
     model = model.to(device)
     if wandb_on:
         wandb.watch(model, log= None)
- 
+    if init_linear_weights:
+        def weights_init(m):
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
     
+        # Apply the weight initialization
+        model.apply(weights_init)
     
     if task_name == "InductiveInference":
         # filtering for inductive datasets
