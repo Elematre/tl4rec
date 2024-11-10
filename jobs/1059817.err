@@ -1,0 +1,223 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+10:08:49   Random seed: 1024
+10:08:49   Config file: config/recommender/first_steps.yaml
+10:08:49   {'checkpoint': None,
+ 'dataset': {'class': 'MovieLens100k', 'root': '~/git/ULTRA/kg-datasets/'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40, 40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'optimizer': {'class': 'AdamW', 'lr': 0.001},
+ 'output_dir': '~/git/ULTRA/output',
+ 'task': {'adversarial_temperature': 1,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10'],
+          'name': 'TransductiveInference',
+          'num_negative': 2,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 1000,
+           'batch_size': 64,
+           'gpus': [0],
+           'log_interval': 100,
+           'num_epoch': 12}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/MovieLens100k/2024-11-10-10-08-49/wandb/run-20241110_100850-tcllzjdt
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-MovieLens100k-2024-11-10_10-08
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/tcllzjdt
+/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/tasks.py:299: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at /opt/conda/conda-bld/pytorch_1695392022560/work/aten/src/ATen/SparseCsrTensorImpl.cpp:53.)
+  Ahh = torch.sparse.mm(EhT, Eh).coalesce()
+10:08:54   MovieLens100k dataset
+10:08:54   #train: 64000, #valid: 8000, #test: 8000
+10:08:54   ------------------------------
+10:08:54   Number of parameters: 161041
+10:08:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:08:54   Epoch 0 begin
+10:08:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:08:55   binary cross entropy: 1.13991
+10:08:55   Note: detected 128 virtual cores but NumExpr set to maximum of 64, check "NUMEXPR_MAX_THREADS" environment variable.
+10:08:55   Note: NumExpr detected 128 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+10:08:55   NumExpr defaulting to 8 threads.
+10:09:17   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:09:17   binary cross entropy: 0.632148
+10:09:39   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:09:40   binary cross entropy: 0.605522
+10:10:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:10:02   binary cross entropy: 0.640991
+10:10:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:10:24   binary cross entropy: 0.674326
+10:10:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:10:46   binary cross entropy: 0.574349
+10:11:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:11:09   binary cross entropy: 0.687504
+10:11:31   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:11:31   binary cross entropy: 0.587575
+10:11:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:11:53   binary cross entropy: 0.559874
+10:12:16   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:12:16   binary cross entropy: 0.550662
+10:12:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:12:38   Epoch 0 end
+10:12:38   ------------------------------
+10:12:38   average binary cross entropy: 0.647656
+10:12:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:12:38   Epoch 1 begin
+10:12:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:12:38   binary cross entropy: 0.521382
+10:13:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:13:01   binary cross entropy: 0.612879
+10:13:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:13:23   binary cross entropy: 0.616877
+10:13:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:13:46   binary cross entropy: 0.561066
+10:14:08   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:14:09   binary cross entropy: 0.535657
+10:14:31   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:14:31   binary cross entropy: 0.560023
+10:14:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:14:54   binary cross entropy: 0.557568
+10:15:16   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:15:16   binary cross entropy: 0.51495
+10:15:39   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:15:39   binary cross entropy: 0.508598
+10:16:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:02   binary cross entropy: 0.572607
+10:16:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:24   Epoch 1 end
+10:16:24   ------------------------------
+10:16:24   average binary cross entropy: 0.563656
+10:16:24   Save checkpoint to model_epoch_2.pth
+10:16:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:24   Evaluate on valid
+10:16:33   mr: 125.959
+10:16:33   mrr: 0.100182
+10:16:33   hits@1: 0.0445625
+10:16:33   hits@3: 0.09525
+10:16:33   hits@10: 0.203313
+10:16:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:33   Epoch 2 begin
+10:16:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:33   binary cross entropy: 0.563199
+10:16:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:16:56   binary cross entropy: 0.558614
+10:17:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:17:19   binary cross entropy: 0.552404
+10:17:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:17:42   binary cross entropy: 0.528213
+10:18:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:18:05   binary cross entropy: 0.564363
+10:18:27   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:18:27   binary cross entropy: 0.522302
+10:18:50   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:18:50   binary cross entropy: 0.502848
+10:19:13   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:19:13   binary cross entropy: 0.461034
+10:19:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:19:36   binary cross entropy: 0.572732
+10:19:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:19:59   binary cross entropy: 0.632369
+10:20:21   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:20:21   Epoch 2 end
+10:20:21   ------------------------------
+10:20:21   average binary cross entropy: 0.52991
+10:20:21   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:20:21   Epoch 3 begin
+10:20:21   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:20:21   binary cross entropy: 0.5387
+10:20:44   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:20:44   binary cross entropy: 0.562351
+10:21:07   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:21:07   binary cross entropy: 0.570412
+10:21:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:21:30   binary cross entropy: 0.521045
+10:21:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:21:53   binary cross entropy: 0.461656
+10:22:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:22:15   binary cross entropy: 0.552995
+10:22:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:22:38   binary cross entropy: 0.498693
+10:23:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:23:01   binary cross entropy: 0.489304
+10:23:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:23:24   binary cross entropy: 0.527935
+10:23:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:23:47   binary cross entropy: 0.514221
+10:24:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:24:09   Epoch 3 end
+10:24:09   ------------------------------
+10:24:09   average binary cross entropy: 0.518494
+10:24:09   Save checkpoint to model_epoch_4.pth
+10:24:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:24:09   Evaluate on valid
+10:24:18   mr: 117.465
+10:24:18   mrr: 0.107322
+10:24:18   hits@1: 0.049625
+10:24:18   hits@3: 0.103438
+10:24:18   hits@10: 0.210875
+10:24:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:24:18   Epoch 4 begin
+10:24:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:24:18   binary cross entropy: 0.532311
+10:24:41   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:24:41   binary cross entropy: 0.491587
+10:25:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:25:04   binary cross entropy: 0.569322
+10:25:26   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:25:27   binary cross entropy: 0.525237
+10:25:49   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:25:49   binary cross entropy: 0.447372
+10:26:12   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:26:12   binary cross entropy: 0.555787
+10:26:35   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:26:35   binary cross entropy: 0.501466
+10:26:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:26:58   binary cross entropy: 0.603414
+10:27:20   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:27:21   binary cross entropy: 0.528897
+10:27:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:27:43   binary cross entropy: 0.475966
+10:28:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:28:06   Epoch 4 end
+10:28:06   ------------------------------
+10:28:06   average binary cross entropy: 0.514488
+10:28:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:28:06   Epoch 5 begin
+10:28:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:28:06   binary cross entropy: 0.514991
+10:28:29   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:28:29   binary cross entropy: 0.528775
+10:28:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:28:52   binary cross entropy: 0.445129
+10:29:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:29:14   binary cross entropy: 0.548096
+10:29:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:29:37   binary cross entropy: 0.4307
+10:30:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:30:00   binary cross entropy: 0.420701
+10:30:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:30:23   binary cross entropy: 0.513692
