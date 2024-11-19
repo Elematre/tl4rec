@@ -4,14 +4,43 @@ import torch.nn.functional as F
 
 from . import tasks, layers
 from ultra.base_nbfnet import BaseNBFNet
+from torch_geometric.nn.models import LightGCN
 
-class Grutz(nn.Module):
-    def __init__(self, rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg):
-        super(MLP, self).__init__()
-        
-        self.ultra = Ultra(rel_model_cfg, entity_model_cfg, embedding_user_cfg, embedding_item_cfg)
+class My_LightGCN(nn.Module):
+    def __init__(self):
+        super(My_LightGCN, self).__init__()
+        self.gcn = LightGCN(2625, 64, 3)
     def forward(self, data, batch):
-        return None
+        
+        """
+        Args:
+            data: A PyG data object containing edge_index, x_user, x_item, etc.
+            batch (Tensor): A tensor of shape (batch_size, 1 + num_neg_samples, 3),
+                            where batch[:, :, 0] are user indices,
+                            batch[:, :, 1] are item indices.
+        
+        Returns:
+            Tensor: Logit scores of shape (batch_size, 1 + num_neg_samples).
+        """
+        # Get LightGCN embeddings for the nodes in the graph
+        lgn_embeddings = self.gcn.get_embedding(data.edge_index)
+
+        # Extract user and item embeddings from LightGCN using the batch indices
+        user_indices = batch[:, :, 0].view(-1)  # Flatten user indices
+        item_indices = batch[:, :, 1].view(-1)  # Flatten item indices
+
+        # Get the embeddings for the specified users and items
+        user_emb_from_lgn = lgn_embeddings[user_indices]
+        item_emb_from_lgn = lgn_embeddings[item_indices]
+
+        # Compute scores as the dot product between user and item embeddings
+        logits = (user_emb_from_lgn * item_emb_from_lgn).sum(dim=-1)
+
+        # Reshape logits to (batch_size, 1 + num_neg_samples)
+        logits = logits.view(batch.size(0), -1)
+
+        #return logits.sigmoid()  # Return scores between 0 and 1
+        return logits # no sigmoids
 
 class Ultra(nn.Module):
 
