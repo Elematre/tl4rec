@@ -145,6 +145,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
     world_size = util.get_world_size()
     rank = util.get_rank()
+    
 
     train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
@@ -392,7 +393,7 @@ if __name__ == "__main__":
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)
-
+    #print(f"Number of nodes: {train_data.num_nodes}")
     # entity_model needs to know the dimensions of the relation model
     
     rel_model_cfg= cfg.model.relation_model

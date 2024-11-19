@@ -4,7 +4,7 @@ import shutil
 import torch
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
-
+from collections import defaultdict
 from ultra.tasks import build_relation_graph
 
 #this is a test for pushing to git 2
@@ -206,111 +206,109 @@ def FB15k237(root):
     return dataset
 
 
-    
+def stratified_split(edge_index, split_ratios, filter_by='item'):
+    """Perform a stratified split based on the frequency distribution of items or users."""
+    split_col = 1 if filter_by == 'item' else 0
+    value_counts = defaultdict(list)
+    for i in range(edge_index.size(1)):
+        value_counts[edge_index[split_col, i].item()].append(i)
+
+    for key in value_counts:
+        value_counts[key] = torch.tensor(value_counts[key])
+        perm = torch.randperm(value_counts[key].size(0))
+        value_counts[key] = value_counts[key][perm]
+
+    splits = [[], [], []]
+    thresholds = [sum(split_ratios[:i + 1]) for i in range(len(split_ratios))]
+    for indices in value_counts.values():
+        group_size = indices.size(0)
+        cumulative = 0
+        for i, threshold in enumerate(thresholds):
+            split_size = int(threshold * group_size) - cumulative
+            splits[i].append(indices[cumulative:cumulative + split_size])
+            cumulative += split_size
+
+    splits = [torch.cat(split) for split in splits]
+    splits = [split[torch.randperm(split.size(0))] for split in splits]
+
+    return splits
 
 def MovieLens100k(root):
-        # load dataset
-        dataset = MovieLens100K(root=root+"/movieLens100k/")
+    # Load dataset
+    dataset = MovieLens100K(root=root + "/movieLens100k/")
+    edge_index = dataset[0]['user', 'rates', 'movie'].edge_index
+    ratings = dataset[0]['user', 'rates', 'movie'].rating - 1
+    user_features = dataset[0]["user"].x
+    item_features = dataset[0]["movie"].x
+    num_users = user_features.size(0)
 
-        edge_index = dataset[0]['user', 'rates', 'movie'].edge_index
-        # since ratings are the etypes we need to ensure that rating is within 0 - num_rels and not 1-5 thus -1
-        ratings = dataset[0]['user', 'rates', 'movie'].rating - 1
-        user_features = dataset[0]["user"].x
-        item_features = dataset[0]["movie"].x
-        data_size = edge_index.size(1)
+    # Filter items with more than one user interaction
+    item_interactions = torch.bincount(edge_index[1])
+    valid_items = torch.nonzero(item_interactions > 1).squeeze()
+    valid_mask = torch.isin(edge_index[1], valid_items)
+    edge_index = edge_index[:, valid_mask]
+    ratings = ratings[valid_mask]
 
-        # users and movies share the same ids this could pose problems
-        # thus fix it
-        user_ids = edge_index[0]
-        num_users = user_features.size(0)
-        movie_ids = edge_index[1]
-        num_items = item_features.size(0)
-        max_user_id = user_ids.max()
-        adjusted_movie_ids = movie_ids + max_user_id + 1
-        edge_index[1] = adjusted_movie_ids
-        
+    # Update item-related data based on valid items
+    valid_item_map = {old: new for new, old in enumerate(valid_items.tolist())}
+    edge_index[1] = torch.tensor([valid_item_map[i.item()] for i in edge_index[1]])
+    num_items = len(valid_items)
+    item_features = item_features[valid_items]
+
+    # Adjust movie IDs to prevent overlap with user IDs
+    max_user_id = edge_index[0].max()
+    edge_index[1] += max_user_id + 1
+
+    # Perform stratified splitting by items
+    split_ratios = [0.8, 0.1, 0.1]  # 80% train, 10% validation, 10% test
+    train_idx, valid_idx, test_idx = stratified_split(edge_index, split_ratios, filter_by='item')
+
+    # Create split datasets
+    train_target_edges = edge_index[:, train_idx]
+    train_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
+
+    valid_edges = edge_index[:, valid_idx]
+    valid_types = torch.zeros(valid_edges.size(1), dtype=torch.int64)
+
+    test_edges = edge_index[:, test_idx]
+    test_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
+
+    # Combine train edges with reversed edges
+    train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=-1)
+    train_edge_types = torch.cat([train_types, train_types + 1], dim=0)
+
+    num_nodes = max_user_id + 1 + num_items
+    num_relations = 2  # Bidirectional relations (e.g., user rates movie and movie rated by user)
+
+    # Construct Data objects
+    train_data = Data(edge_index=train_edges, edge_type=train_edge_types, 
+                      num_nodes=num_nodes, target_edge_index=train_target_edges, target_edge_type=train_types, num_relations=num_relations)
+    
+    valid_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
+                      target_edge_index=valid_edges, target_edge_type=valid_types, num_relations=num_relations)
+    
+    test_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
+                     target_edge_index=test_edges, target_edge_type=test_types, num_relations=num_relations)
+
+    # Build relation graphs
+    train_data = build_relation_graph(train_data)
+    valid_data = build_relation_graph(valid_data)
+    test_data = build_relation_graph(test_data)
+
+    # Add user and item features to each split
+    for data in [train_data, valid_data, test_data]:
+        data.x_user = user_features
+        data.x_item = item_features
+        data.num_users = num_users
+        data.num_items = num_items
+
+    print("Relational graph is built")
+    dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
+
+    return dataset
 
 
-    
-        # Shuffle the edges
-        perm = torch.randperm(data_size)  
-        edge_index = edge_index[:, perm] 
-        edge_type = torch.zeros(edge_index.size(1), dtype=torch.int64)
-        # ratings = ratings[perm] 
-    
-        # Split the dataset (80% train, 10% validation, 10% test)
-        train_size = int(data_size * 0.8)
-        valid_size = int(data_size * 0.1)
-        test_size = data_size - train_size - valid_size
-      
-        train_target_edges = edge_index[:, :train_size]
-        train_types= edge_type[:train_size]
-        # train_ratings = ratings[:train_size]
-    
-        valid_edges = edge_index[:, train_size:train_size + valid_size]
-        valid_types = edge_type[train_size:train_size + valid_size]
-        # valid_ratings = ratings[train_size:train_size + valid_size]
-        
-        test_edges = edge_index[:, train_size + valid_size: data_size]
-        test_types = edge_type[train_size + valid_size: data_size]
-        # test_ratings = ratings[train_size + valid_size: data_size]
 
-
-        # Combine original train edges and reversed train edges
-        train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=-1)
-        train_edge_types= torch.cat([train_types, train_types + 1], dim=0)
-    
-        # Combine the ratings (use the different ratings for reversed edges --> adding 5 this would else create problems )
-        # train_ratings_combined = torch.cat([train_ratings, train_ratings + 5], dim=0)
-        
-    
-        num_node = dataset[0].num_nodes
-        # ratings are betweeen 1 and 5 and we double it thus 10 rels
-        num_relations = 2
-    
-        # instead of hardcoding num_relations
-        # Find the unique ratings
-        # unique_ratings = torch.unique(ratings)
-        # Count the number of unique ratings
-        # num_unique_ratings = unique_ratings.size(0)
-    
-    
-        # Construct PyG Data objects
-        train_data = Data(edge_index=train_edges, edge_type=train_edge_types, 
-                          num_nodes=num_node, target_edge_index=train_target_edges, target_edge_type=train_types, num_relations = num_relations)
-        
-        valid_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_node,
-                              target_edge_index=valid_edges, target_edge_type=valid_types, num_relations=num_relations)
-        test_data = Data(edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_node,
-                             target_edge_index=test_edges, target_edge_type=test_types, num_relations=num_relations)
-    
-
-        
-        # build relation graphs
-        train_data = build_relation_graph(train_data)
-        valid_data = build_relation_graph(valid_data)
-        test_data = build_relation_graph(test_data)
-
-        train_data.x_user = user_features
-        train_data.x_item = item_features
-        train_data.num_users = num_users
-        train_data.num_items = num_items
-
-        valid_data.x_user = user_features
-        valid_data.x_item = item_features
-        valid_data.num_users = num_users
-        valid_data.num_items = num_items
-    
-        test_data.x_user = user_features
-        test_data.x_item = item_features
-        test_data.num_users = num_users
-        test_data.num_items = num_items
-        
-    
-        print ("rel graph is built")  
-        dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
-        #raise ValueError("abort.")
-        return dataset
 
 
 def WN18RR(root):
