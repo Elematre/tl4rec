@@ -9,7 +9,7 @@ from torch_geometric.nn.models import LightGCN
 class My_LightGCN(nn.Module):
     def __init__(self):
         super(My_LightGCN, self).__init__()
-        self.gcn = LightGCN(2625, 64, 3)
+        self.gcn = LightGCN(2452, 64, 3)
     def forward(self, data, batch):
         
         """
