@@ -53,7 +53,7 @@ conda info --envs
 cd ${DIRECTORY}
 
 # Execute your code
-python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 12 --bpe 1000 --gpus "[0]" --ckpt null
+python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 14 --bpe 1000 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"

@@ -26,7 +26,7 @@ model:
   simple_model:
     class: SimpleNBFNet
     input_dim: 40
-    hidden_dims: [40, 40, 40, 40, 40, 40, 40, 40]
+    hidden_dims: [40, 40, 40, 40]
     message_func: distmult
     aggregate_func: sum
     short_cut: yes
@@ -45,7 +45,7 @@ task:
   name: TransductiveInference
   num_negative: 2
   strict_negative: yes
-  adversarial_temperature: 1
+  adversarial_temperature: 0
   metric: [mr, mrr, hits@1, hits@3, hits@10]
 
 optimizer:

@@ -19,14 +19,14 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util
-from ultra.models import Ultra
+from ultra.models import Ultra,My_LightGCN
 
 
 separator = ">" * 30
 line = "-" * 30
 wandb_on = True
-gradient_clip = True
-init_linear_weights = True
+gradient_clip = False
+init_linear_weights = False
 
 def train_and_validate1(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
@@ -400,8 +400,9 @@ if __name__ == "__main__":
     # assuming the entity model has the same dimensions in every layer
     entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
 
+    #model = My_LightGCN()
     model = Ultra(
-        simple_model_cfg = cfg.model.simple_model,
+        simple_model_cfg= cfg.model.simple_model,
         embedding_user_cfg = cfg.model.embedding_user,
         embedding_item_cfg = cfg.model.embedding_item
     )
