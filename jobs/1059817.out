@@ -11,3 +11,6 @@ jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
 
 rel graph is built
 Load rspmm extension. This may take a while...
+[1;34mwandb[0m: 🚀 View run [33mrun-MovieLens100k-2024-11-10_10-08[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/tcllzjdt[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241110_100850-tcllzjdt/logs[0m
+Finished at: Sun Nov 10 10:55:43 CET 2024
