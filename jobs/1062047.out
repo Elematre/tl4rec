@@ -1,0 +1,16 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.j99QWSgQU6
+Starting on: Tue Nov 19 16:52:18 CET 2024
+SLURM_JOB_ID: 1062047
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+Relational graph is built
+Load rspmm extension. This may take a while...
+[1;34mwandb[0m: 🚀 View run [33mrun-MovieLens100k-2024-11-19_16-52[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/2yp68l9x[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241119_165228-2yp68l9x/logs[0m
+Finished at: Tue Nov 19 17:28:25 CET 2024

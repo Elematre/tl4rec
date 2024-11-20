@@ -6,6 +6,7 @@ from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zi
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
 from collections import defaultdict
 from ultra.tasks import build_relation_graph
+import matplotlib.pyplot as plt
 
 #this is a test for pushing to git 2
 
@@ -205,21 +206,24 @@ def FB15k237(root):
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
-
 def stratified_split(edge_index, split_ratios, filter_by='item'):
     """Perform a stratified split based on the frequency distribution of items or users."""
     split_col = 1 if filter_by == 'item' else 0
     value_counts = defaultdict(list)
+
+    # Group indices by their corresponding values (items or users)
     for i in range(edge_index.size(1)):
         value_counts[edge_index[split_col, i].item()].append(i)
 
     for key in value_counts:
         value_counts[key] = torch.tensor(value_counts[key])
-        perm = torch.randperm(value_counts[key].size(0))
+        perm = torch.randperm(value_counts[key].size(0))  # Shuffle within each group
         value_counts[key] = value_counts[key][perm]
 
     splits = [[], [], []]
     thresholds = [sum(split_ratios[:i + 1]) for i in range(len(split_ratios))]
+
+    # Distribute indices across splits
     for indices in value_counts.values():
         group_size = indices.size(0)
         cumulative = 0
@@ -231,7 +235,26 @@ def stratified_split(edge_index, split_ratios, filter_by='item'):
     splits = [torch.cat(split) for split in splits]
     splits = [split[torch.randperm(split.size(0))] for split in splits]
 
+
     return splits
+
+
+
+def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
+    """Plots the distribution of items in the dataset splits."""
+    split_col = 1 if filter_by == 'item' else 0
+
+    plt.figure(figsize=(12, 6))
+    for i, indices in enumerate(split_indices):
+        item_counts = torch.bincount(edge_index[split_col, indices])
+        plt.plot(item_counts.numpy(), label=f"{labels[i]} (Mean: {item_counts.float().mean():.2f})")
+
+    plt.title("Item Distribution Across Splits")
+    plt.xlabel("Item Index")
+    plt.ylabel("Frequency")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 def MovieLens100k(root):
     # Load dataset
@@ -242,26 +265,39 @@ def MovieLens100k(root):
     item_features = dataset[0]["movie"].x
     num_users = user_features.size(0)
 
-    # Filter items with more than one user interaction
+    # Filter items with at least 1 user interaction
+    #print(f"pre- Filtered edge index size: {edge_index.size()}")
     item_interactions = torch.bincount(edge_index[1])
-    valid_items = torch.nonzero(item_interactions > 1).squeeze()
+    valid_items = torch.nonzero(item_interactions > 0).squeeze()
     valid_mask = torch.isin(edge_index[1], valid_items)
     edge_index = edge_index[:, valid_mask]
     ratings = ratings[valid_mask]
+    #print(f"Filtered edge index size: {edge_index.size()}")
 
     # Update item-related data based on valid items
     valid_item_map = {old: new for new, old in enumerate(valid_items.tolist())}
     edge_index[1] = torch.tensor([valid_item_map[i.item()] for i in edge_index[1]])
     num_items = len(valid_items)
     item_features = item_features[valid_items]
+    #print(f"Number of valid items: {num_items}, Edge index after filtering: {edge_index.size()}")
 
     # Adjust movie IDs to prevent overlap with user IDs
     max_user_id = edge_index[0].max()
     edge_index[1] += max_user_id + 1
+    #print(f"Max user ID: {max_user_id}")
 
     # Perform stratified splitting by items
     split_ratios = [0.8, 0.1, 0.1]  # 80% train, 10% validation, 10% test
     train_idx, valid_idx, test_idx = stratified_split(edge_index, split_ratios, filter_by='item')
+    #print(f"Train indices: {train_idx.size(0)}, Valid indices: {valid_idx.size(0)}, Test indices: {test_idx.size(0)}")
+
+    # Debugging: Check overlap between splits
+    #print(f"Train/Valid overlap: {len(set(train_idx.tolist()).intersection(valid_idx.tolist()))}")
+    #print(f"Train/Test overlap: {len(set(train_idx.tolist()).intersection(test_idx.tolist()))}")
+    #print(f"Valid/Test overlap: {len(set(valid_idx.tolist()).intersection(test_idx.tolist()))}")
+
+    # Check item distribution
+    #plot_item_distribution(edge_index, [train_idx, valid_idx, test_idx], ['Train', 'Validation', 'Test'])
 
     # Create split datasets
     train_target_edges = edge_index[:, train_idx]
@@ -279,7 +315,8 @@ def MovieLens100k(root):
 
     num_nodes = max_user_id + 1 + num_items
     num_relations = 2  # Bidirectional relations (e.g., user rates movie and movie rated by user)
-
+    #print(f"num_nodes: {num_nodes}")
+    
     # Construct Data objects
     train_data = Data(edge_index=train_edges, edge_type=train_edge_types, 
                       num_nodes=num_nodes, target_edge_index=train_target_edges, target_edge_type=train_types, num_relations=num_relations)
@@ -619,7 +656,7 @@ class DBpedia100k(TransductiveDataset):
 class YAGO310(TransductiveDataset):
 
     urls = [
-        "https://raw.githubusercontent.com/DeepGraphLearning/KnowledgeGraphEmbedding/master/data/YAGO3-10/train.txt",
+        "https://raw.githubusercontent.com/DeepGraphLearning/KnowledgeGraphEmbedding/master/datI implemented stratified splits but the performance of my model detriorated from mrr of 0.1 to 0.08 is this possible or thus suggest that my implementation of stratified splits might be wrong?ma/YAGO3-10/train.txt",
         "https://raw.githubusercontent.com/DeepGraphLearning/KnowledgeGraphEmbedding/master/data/YAGO3-10/valid.txt",
         "https://raw.githubusercontent.com/DeepGraphLearning/KnowledgeGraphEmbedding/master/data/YAGO3-10/test.txt",
         ]
