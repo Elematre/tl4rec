@@ -1,0 +1,4 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
