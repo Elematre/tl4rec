@@ -28,118 +28,7 @@ wandb_on = True
 gradient_clip = False
 init_linear_weights = False
 
-def train_and_validate1(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
-    if cfg.train.num_epoch == 0:
-        return
-    # world_size = # how many processors are used
-    world_size = util.get_world_size()
-    # the rank of each processor
-    rank = util.get_rank()
-
-    train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
-    sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
-    train_loader = torch_data.DataLoader(train_triplets, cfg.train.batch_size, sampler=sampler)
-
-    batch_per_epoch = batch_per_epoch or len(train_loader)
-    
-    cls = cfg.optimizer.pop("class")
-    optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
-    num_params = sum(p.numel() for p in model.parameters())
-    logger.warning(line)
-    logger.warning(f"Number of parameters: {num_params}")
-    if wandb_on: 
-        wandb.config.num_params = num_params
-
-    if world_size > 1:
-        parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
-    else:
-        parallel_model = model
-
-    step = math.ceil(cfg.train.num_epoch / 10)
-    best_result = float("-inf")
-    best_epoch = -1
-
-    batch_id = 0
-     # iterates in step size 1/10 of a epoch
-    for i in range(0, cfg.train.num_epoch, step):
-        parallel_model.train()
-        for epoch in range(i, min(cfg.train.num_epoch, i + step)):
-            if util.get_rank() == 0:
-                logger.warning(separator)
-                logger.warning("Epoch %d begin" % epoch)
-
-            losses = []
-            sampler.set_epoch(epoch)
-           
-            for batch in islice(train_loader, batch_per_epoch):
-                batch = tasks.negative_sampling(train_data, batch, cfg.task.num_negative,
-                                                strict=cfg.task.strict_negative)
-                pred = parallel_model(train_data, batch)
-                target = torch.zeros_like(pred)
-                target[:, 0] = 1
-                loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
-                neg_weight = torch.ones_like(pred)
-                if cfg.task.adversarial_temperature > 0:
-                    with torch.no_grad():
-                        neg_weight[:, 1:] = F.softmax(pred[:, 1:] / cfg.task.adversarial_temperature, dim=-1)
-                else:
-                    neg_weight[:, 1:] = 1 / cfg.task.num_negative
-                loss = (loss * neg_weight).sum(dim=-1) / neg_weight.sum(dim=-1)
-                loss = loss.mean()
-
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
-
-                if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
-                    logger.warning(separator)
-                    logger.warning("binary cross entropy: %g" % loss)
-                    if wandb_on:
-                        wandb.log({"training/loss": loss})
-                losses.append(loss.item())
-                batch_id += 1
-
-            if util.get_rank() == 0:
-                avg_loss = sum(losses) / len(losses)
-                logger.warning(separator)
-                logger.warning("Epoch %d end" % epoch)
-                logger.warning(line)
-                logger.warning("average binary cross entropy: %g" % avg_loss)
-
-        epoch = min(cfg.train.num_epoch, i + step)
-        if rank == 0:
-            logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
-            state = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict()
-            }
-            torch.save(state, "model_epoch_%d.pth" % epoch)
-        util.synchronize()
-
-        if rank == 0:
-            logger.warning(separator)
-            logger.warning("Evaluate on valid")
-
-        # ToDo change from here
-        
-        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
-        # Log each metric with the hierarchical key format "training/performance/{metric}"
-        if wandb_on:
-            for metric, score in result_dict.items():
-                wandb.log({f"training/performance/{metric}": score})
-        result = result_dict["mrr"]
-        if result > best_result:
-            best_result = result
-            best_epoch = epoch
-
-    if rank == 0:
-        logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
-    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
-    model.load_state_dict(state["model"])
-    util.synchronize()
-
-
-def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
+def train_and_validate_old_cel(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
         return
 
@@ -220,6 +109,128 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 logger.warning("Epoch %d end" % epoch)
                 logger.warning(line)
                 logger.warning("average binary cross entropy: %g" % avg_loss)
+                
+            
+
+        epoch = min(cfg.train.num_epoch, i + step)
+        if rank == 0:
+            logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
+            state = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict()
+            }
+            torch.save(state, "model_epoch_%d.pth" % epoch)
+        util.synchronize()
+
+        if rank == 0:
+            logger.warning(separator)
+            logger.warning("Evaluate on valid")
+        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+        # Log each metric with the hierarchical key format "training/performance/{metric}"
+        if wandb_on:
+            for metric, score in result_dict.items():
+                wandb.log({f"training/performance/{metric}": score})
+        result = result_dict["mrr"]
+        #scheduler.step()
+        #scheduler.step(result) 
+        if result > best_result:
+            best_result = result
+            best_epoch = epoch
+
+    if rank == 0:
+        logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
+    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
+    model.load_state_dict(state["model"])
+    util.synchronize()
+
+
+def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
+    if cfg.train.num_epoch == 0:
+        return
+
+    world_size = util.get_world_size()
+    rank = util.get_rank()
+    
+
+    train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
+    sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
+    train_loader = torch_data.DataLoader(train_triplets, cfg.train.batch_size, sampler=sampler)
+
+    batch_per_epoch = batch_per_epoch or len(train_loader)
+    
+    cls = cfg.optimizer.pop("class")
+    #optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=1.0e-3, alpha=0.99)
+    #scheduler = StepLR(optimizer, step_size= 4, gamma=0.5) 
+    #scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3, verbose=False)
+    num_params = sum(p.numel() for p in model.parameters())
+    logger.warning(line)
+    logger.warning(f"Number of parameters: {num_params}")
+    if wandb_on: 
+        wandb.config.num_params = num_params
+
+    if world_size > 1:
+        parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
+    else:
+        parallel_model = model
+
+    step = math.ceil(cfg.train.num_epoch / 10)
+    best_result = float("-inf")
+    best_epoch = -1
+
+    batch_id = 0
+    for i in range(0, cfg.train.num_epoch, step):
+        parallel_model.train()
+        for epoch in range(i, min(cfg.train.num_epoch, i + step)):
+            if util.get_rank() == 0:
+                logger.warning(separator)
+                logger.warning("Epoch %d begin" % epoch)
+
+            losses = []
+            sampler.set_epoch(epoch)
+            for batch in islice(train_loader, batch_per_epoch):
+                batch = tasks.negative_sampling(train_data, batch, cfg.task.num_negative,
+                                                strict=cfg.task.strict_negative)
+                pred = parallel_model(train_data, batch)
+                target = torch.zeros_like(pred)
+                target[:, 0] = 1
+                # loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+                neg_weight = torch.ones_like(pred)
+                if cfg.task.adversarial_temperature > 0:
+                    with torch.no_grad():
+                        neg_weight[:, 1:] = F.softmax(pred[:, 1:] / cfg.task.adversarial_temperature, dim=-1)
+                else:
+                    neg_weight[:, 1:] = 1 / cfg.task.num_negative
+                    
+                pos_scores= pred[:, 0]
+                neg_scores= (pred[:, 1:] * neg_weight[:, 1:]).sum(dim=-1)
+                loss = - (F.logsigmoid(pos_scores - neg_scores).mean())
+
+                loss.backward()
+                # Apply gradient clipping
+                if gradient_clip:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+
+                if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
+                    logger.warning(separator)
+                    logger.warning(f"Mean positive scores: {pos_scores.mean().item()}")
+                    logger.warning(f"Mean negative scores: {neg_scores.mean().item()}")
+                    logger.warning(f"BPR loss: {loss.item()}")
+                    if wandb_on:
+                        wandb.log({"training/loss": loss})
+                        wandb.log({"training/pos_scores": pos_scores.mean().item()})
+                        wandb.log({"training/neg_scores": neg_scores.mean().item()})
+                losses.append(loss.item())
+                batch_id += 1
+
+            if util.get_rank() == 0:
+                avg_loss = sum(losses) / len(losses)
+                logger.warning(separator)
+                logger.warning("Epoch %d end" % epoch)
+                logger.warning(line)
+                logger.warning("average bpr: %g" % avg_loss)
                 
             
 
