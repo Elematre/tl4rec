@@ -52,7 +52,7 @@ conda info --envs
 
 cd ${DIRECTORY}
 
-# Execute your code
+# Execute your code 62 bpe for light gcn and 1978 for simple
 python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 20 --bpe 1978 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log

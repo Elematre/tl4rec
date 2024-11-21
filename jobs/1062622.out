@@ -1,0 +1,15 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.1tEtd32Tyl
+Starting on: Thu Nov 21 15:26:35 CET 2024
+SLURM_JOB_ID: 1062622
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+Relational graph is built
+[1;34mwandb[0m: 🚀 View run [33mrun-MovieLens100k-2024-11-21_15-26[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/ghheb8rr[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241121_152644-ghheb8rr/logs[0m
+Finished at: Thu Nov 21 15:27:03 CET 2024
