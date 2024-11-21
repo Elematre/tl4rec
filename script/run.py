@@ -24,7 +24,8 @@ from ultra.models import Ultra,My_LightGCN
 
 separator = ">" * 30
 line = "-" * 30
-wandb_on = True
+wandb_on = False
+light_gcn = False
 gradient_clip = False
 init_linear_weights = False
 
@@ -278,17 +279,31 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     model.eval()
     rankings = []
     num_negatives = []
+    ndcgs = []
+    k = 20 # could be optimized
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
     for batch in test_loader:
+        #h_batch= t_batch= (bs, num_nodes, 3)
         t_batch, h_batch = tasks.all_negative(test_data, batch)
         t_pred = model(test_data, t_batch)
         h_pred = model(test_data, h_batch)
+        #t_pred= (bs, num_nodes)
     
         if filtered_data is None:
             t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
         else:
             t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch)
         pos_h_index, pos_t_index, pos_r_index = batch.t()
+        #pos_h_index = (bs)
+        #t_mask = (bs, num_nodes)
+
+        # compute relevance
+
+        #compute t_ndcg
+        t_ndcg = tasks.compute_ndcg_at_k(t_pred, relevance, k)
+        h_ndcg = tasks.compute_ndcg_at_k(h_pred, relevance, k)
+        ndcgs.append(torch.cat([t_ndcg, h_ndcg], dim=0))
+        
         t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
         h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
         num_t_negative = t_mask.sum(dim=-1)
@@ -300,11 +315,17 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         tail_rankings += [t_ranking]
         num_tail_negs += [num_t_negative]
 
+    # the 3 code section below mainly ensure correct behaviour in a multi-core environment
+    
     ranking = torch.cat(rankings)
     num_negative = torch.cat(num_negatives)
     all_size = torch.zeros(world_size, dtype=torch.long, device=device)
     all_size[rank] = len(ranking)
-
+    
+    ndcg_scores = torch.cat(ndcgs)
+    if world_size > 1:
+        dist.all_reduce(ndcg_scores, op=dist.ReduceOp.SUM)
+        
     # ugly repetitive code for tail-only ranks processing
     tail_ranking = torch.cat(tail_rankings)
     num_tail_neg = torch.cat(num_tail_negs)
@@ -313,7 +334,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     if world_size > 1:
         dist.all_reduce(all_size, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_size_t, op=dist.ReduceOp.SUM)
-
+        
     # obtaining all ranks 
     cum_size = all_size.cumsum(0)
     all_ranking = torch.zeros(all_size.sum(), dtype=torch.long, device=device)
@@ -332,7 +353,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         dist.all_reduce(all_num_negative, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_ranking_t, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_num_negative_t, op=dist.ReduceOp.SUM)
-
+    # print (all_ranking.size())
+    # i thinkg all_ranking = (test_size,2) yes but its (test_size*2)
     metrics = {}
     if rank == 0:
         for metric in cfg.task.metric:
@@ -343,8 +365,11 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                 _ranking = all_ranking_t
                 _num_neg = all_num_negative_t
             else:
-                _ranking = all_ranking 
-                _num_neg = all_num_negative 
+                #_ranking = all_ranking 
+                #_num_neg = all_num_negative 
+                 # we are only interested in tail prediction:
+                _ranking = all_ranking_t
+                _num_neg = all_num_negative_t
                 _metric_name = metric
             
             if _metric_name == "mr":
@@ -369,6 +394,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
+        logger.warning(f"NDCG@{k}: {final_ndcg}")
+        metrics["ndcg@k"] = final_ndcg
     mrr = (1 / all_ranking.float()).mean()
 
     return mrr if not return_metrics else metrics
@@ -411,13 +438,15 @@ if __name__ == "__main__":
     entity_model_cfg= cfg.model.entity_model
     # assuming the entity model has the same dimensions in every layer
     entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
-
-    #model = My_LightGCN()
+    
     model = Ultra(
         simple_model_cfg= cfg.model.simple_model,
         embedding_user_cfg = cfg.model.embedding_user,
         embedding_item_cfg = cfg.model.embedding_item
     )
+    if light_gcn:
+        model = My_LightGCN()
+    
     #model = Ultra(
     #    rel_model_cfg= rel_model_cfg,
      #   entity_model_cfg= entity_model_cfg,
@@ -467,6 +496,7 @@ if __name__ == "__main__":
             )
     else:
         # for transductive setting, use the whole graph for filtered ranking
+        # train target edges are the directed edges
         filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
         val_filtered_data = test_filtered_data = filtered_data
     

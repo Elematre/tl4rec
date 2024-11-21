@@ -182,7 +182,8 @@ def all_negative(data, batch):
     all_index = torch.arange(data.num_nodes, device=batch.device)
     t_index, h_index = torch.meshgrid(pos_t_index, all_index, indexing="ij")
     h_batch = torch.stack([h_index, t_index, r_index], dim=-1)
-
+    # t_batch has all corrupted tail nodes important not only including items but also users. but this doesnt really matter since we
+    # mask the users for ranking calculation anyway by strict_negative_mask
     return t_batch, h_batch
 
 
@@ -237,14 +238,73 @@ def strict_negative_mask(data, batch):
 
 def compute_ranking(pred, target, mask=None):
     pos_pred = pred.gather(-1, target.unsqueeze(-1))
+    #pos_pred = (bs,1)
     if mask is not None:
         # filtered ranking
         ranking = torch.sum((pos_pred <= pred) & mask, dim=-1) + 1
     else:
         # unfiltered ranking
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
+    # ranking = (bs)
     return ranking
 
+def get_relevance_labels(t_mask, h_mask, pred_type="tail"):
+    """
+    Generate relevance labels for ranking based on masks.
+
+    Args:
+        t_mask (Tensor): Tail negative mask, shape (batch_size, num_nodes).
+                        t_mask[i, j] = 1 if edge (h(i), j) does not exist in the graph.
+        h_mask (Tensor): Head negative mask, shape (batch_size, num_nodes).
+                        h_mask[i, j] = 1 if edge (j, t(i)) does not exist in the graph.
+        pred_type (str): Either "tail" or "head", determines which mask to use.
+
+    Returns:
+        Tensor: Relevance labels, shape (batch_size, num_nodes).
+                rel[i, j] = 1 if edge (h(i), j) or (j, t(i)) exists; otherwise 0.
+    """
+    if pred_type == "tail":
+        # Negate t_mask to assign relevance = 1 for edges that exist
+        relevance = (~t_mask.bool()).float()
+    elif pred_type == "head":
+        # Negate h_mask to assign relevance = 1 for edges that exist
+        relevance = (~h_mask.bool()).float()
+    else:
+        raise ValueError(f"Invalid pred_type: {pred_type}. Must be 'tail' or 'head'.")
+
+    return relevance
+
+
+def compute_ndcg_at_k(pred, target, k):
+    """
+    Compute NDCG@k for a batch of predictions.
+
+    Args:
+        pred (Tensor): Predicted scores, shape (batch_size, num_candidates).
+        target (Tensor): Ground truth relevance, shape (batch_size, num_candidates).
+        k (int): Cutoff for NDCG computation.
+
+    Returns:
+        Tensor: NDCG@k for each batch instance, shape (batch_size,).
+    """
+    batch_size = pred.size(0)
+
+    # Step 1: Sort predictions and associated relevance scores by descending order of predictions
+    _, indices = torch.topk(pred, k, dim=1, largest=True, sorted=True)  # Top-k indices
+    sorted_relevance = target.gather(1, indices)  # Relevance of top-k predictions
+
+    # Step 2: Compute DCG@k
+    discount = 1.0 / torch.log2(torch.arange(2, k + 2, device=pred.device).float())  # Log discount factors
+    dcg = (sorted_relevance * discount).sum(dim=1)  # Sum discounted relevance scores
+
+    # Step 3: Compute IDCG@k (Ideal DCG)
+    ideal_relevance, _ = torch.topk(target, k, dim=1, largest=True, sorted=True)  # Top-k ideal relevance
+    idcg = (ideal_relevance * discount).sum(dim=1)  # Sum ideal discounted relevance scores
+
+    # Step 4: Compute NDCG@k
+    ndcg = dcg / idcg
+    ndcg[torch.isnan(ndcg)] = 0.0  # Handle cases where idcg is 0 (no relevant items)
+    return ndcg
 
 def build_relation_graph(graph):
 
