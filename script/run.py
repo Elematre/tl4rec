@@ -25,7 +25,7 @@ from ultra.models import Ultra,My_LightGCN
 separator = ">" * 30
 line = "-" * 30
 wandb_on = False
-light_gcn = False
+light_gcn = True
 gradient_clip = False
 init_linear_weights = False
 
@@ -253,7 +253,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         if wandb_on:
             for metric, score in result_dict.items():
                 wandb.log({f"training/performance/{metric}": score})
-        result = result_dict["mrr"]
+        result = result_dict["ndcg@k"]
         #scheduler.step()
         #scheduler.step(result) 
         if result > best_result:
@@ -268,9 +268,10 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
 
 @torch.no_grad()
-def test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False):
+def test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None):
     world_size = util.get_world_size()
     rank = util.get_rank()
+    num_users = test_data.num_users
 
     test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
@@ -288,22 +289,35 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         t_pred = model(test_data, t_batch)
         h_pred = model(test_data, h_batch)
         #t_pred= (bs, num_nodes)
-    
         if filtered_data is None:
             t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
         else:
             t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch)
-        pos_h_index, pos_t_index, pos_r_index = batch.t()
-        #pos_h_index = (bs)
-        #t_mask = (bs, num_nodes)
 
-        # compute relevance
-
-        #compute t_ndcg
-        t_ndcg = tasks.compute_ndcg_at_k(t_pred, relevance, k)
-        h_ndcg = tasks.compute_ndcg_at_k(h_pred, relevance, k)
-        ndcgs.append(torch.cat([t_ndcg, h_ndcg], dim=0))
+        # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
         
+        pos_h_index, pos_t_index, pos_r_index = batch.t()
+        # pos_h_index = (bs)
+
+        # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
+        t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch)
+        t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
+   
+        # mask out all scores of known edges. 
+        t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
+        # mask out pos_t/h_index 
+        t_mask_inv = t_mask_inv.logical_xor(t_relevance)
+        h_mask_inv = h_mask_inv.logical_xor(h_relevance)
+
+        
+        t_pred[t_mask_inv] = float('-inf')
+        h_pred[h_mask_inv] = float('-inf')
+        #compute t_ndcg 
+        t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+        h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+        ndcgs.append(torch.cat([t_ndcg, h_ndcg], dim=0))
+
+        # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter ffor now
         t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
         h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
         num_t_negative = t_mask.sum(dim=-1)
@@ -394,6 +408,9 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
+            
+        # Average NDCG across all samples
+        final_ndcg = ndcg_scores.mean().item()
         logger.warning(f"NDCG@{k}: {final_ndcg}")
         metrics["ndcg@k"] = final_ndcg
     mrr = (1 / all_ranking.float()).mean()
@@ -497,6 +514,7 @@ if __name__ == "__main__":
     else:
         # for transductive setting, use the whole graph for filtered ranking
         # train target edges are the directed edges
+        # dataset._data.target_edge_index contains all edges of the graph.
         filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
         val_filtered_data = test_filtered_data = filtered_data
     
@@ -517,7 +535,7 @@ if __name__ == "__main__":
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")
-    result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics = True)
+    result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics = True, valid_data = valid_data)
     
     # Log each metric with the hierarchical key format "training/performance/{metric}"
     if wandb_on:

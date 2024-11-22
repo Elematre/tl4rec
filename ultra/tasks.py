@@ -232,9 +232,17 @@ def strict_negative_mask(data, batch):
     h_mask[sample_id, h_truth_index] = 0
     h_mask.scatter_(1, pos_h_index.unsqueeze(-1), 0)
     h_mask[:, num_users:] = 0 
-
     return t_mask, h_mask
 
+def invert_mask(t_mask, h_mask, num_users):
+    t_mask_inv = (~t_mask.bool())
+    h_mask_inv = (~h_mask.bool())
+    # adjustment: user -user /item - item edges now have a 1 since we filtered them out in strict_negative_mask
+    t_mask_inv[:, :num_users] = 0
+    h_mask_inv [:, num_users:] = 0
+    return t_mask_inv, h_mask_inv
+        
+    
 
 def compute_ranking(pred, target, mask=None):
     pos_pred = pred.gather(-1, target.unsqueeze(-1))
@@ -247,6 +255,7 @@ def compute_ranking(pred, target, mask=None):
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
     # ranking = (bs)
     return ranking
+    
 
 def get_relevance_labels(t_mask, h_mask, pred_type="tail"):
     """
@@ -298,7 +307,7 @@ def compute_ndcg_at_k(pred, target, k):
     dcg = (sorted_relevance * discount).sum(dim=1)  # Sum discounted relevance scores
 
     # Step 3: Compute IDCG@k (Ideal DCG)
-    ideal_relevance, _ = torch.topk(target, k, dim=1, largest=True, sorted=True)  # Top-k ideal relevance
+    ideal_relevance, _ = torch.topk(target.float(), k, dim=1, largest=True, sorted=True)  # Top-k ideal relevance
     idcg = (ideal_relevance * discount).sum(dim=1)  # Sum ideal discounted relevance scores
 
     # Step 4: Compute NDCG@k
