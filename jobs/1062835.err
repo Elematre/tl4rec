@@ -1,0 +1,340 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+11:07:40   Random seed: 1024
+11:07:40   Config file: config/recommender/first_steps.yaml
+11:07:40   {'checkpoint': None,
+ 'dataset': {'class': 'MovieLens100k', 'root': '~/git/ULTRA/kg-datasets/'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'optimizer': {'class': 'AdamW', 'lr': 0.005},
+ 'output_dir': '~/git/ULTRA/output',
+ 'task': {'adversarial_temperature': 0,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10'],
+          'name': 'TransductiveInference',
+          'num_negative': 1,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 62,
+           'batch_size': 1024,
+           'gpus': [0],
+           'log_interval': 100,
+           'num_epoch': 20}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/MovieLens100k/2024-11-22-11-07-40/wandb/run-20241122_110742-j11tljib
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-MovieLens100k-2024-11-22_11-07
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/j11tljib
+/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/tasks.py:359: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at /opt/conda/conda-bld/pytorch_1695392022560/work/aten/src/ATen/SparseCsrTensorImpl.cpp:53.)
+  Ahh = torch.sparse.mm(EhT, Eh).coalesce()
+11:07:48   MovieLens100k dataset
+11:07:48   #train: 63283, #valid: 7882, #test: 8835
+11:07:48   ------------------------------
+11:07:48   Number of parameters: 165952
+11:07:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:48   Epoch 0 begin
+11:07:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:48   Mean positive scores: 0.00011278531019343063
+11:07:48   Mean negative scores: 2.2411331883631647e-05
+11:07:48   BPR loss: 0.6931020021438599
+11:07:50   Note: detected 128 virtual cores but NumExpr set to maximum of 64, check "NUMEXPR_MAX_THREADS" environment variable.
+11:07:50   Note: NumExpr detected 128 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+11:07:50   NumExpr defaulting to 8 threads.
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Epoch 0 end
+11:07:53   ------------------------------
+11:07:53   average bpr: 0.572926
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Epoch 1 begin
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Mean positive scores: 2.0017857551574707
+11:07:53   Mean negative scores: 1.0945249795913696
+11:07:53   BPR loss: 0.4659847617149353
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Epoch 1 end
+11:07:53   ------------------------------
+11:07:53   average bpr: 0.4626
+11:07:53   Save checkpoint to model_epoch_2.pth
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Evaluate on valid
+11:07:53   mr: 1
+11:07:53   mrr: 1
+11:07:53   hits@1: 1
+11:07:53   hits@3: 1
+11:07:53   hits@10: 1
+11:07:53   NDCG@20: 0.3082098066806793
+11:07:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:53   Epoch 2 begin
+11:07:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:54   Epoch 2 end
+11:07:54   ------------------------------
+11:07:54   average bpr: 0.444195
+11:07:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:54   Epoch 3 begin
+11:07:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:54   Mean positive scores: 2.6605207920074463
+11:07:54   Mean negative scores: 1.3839491605758667
+11:07:54   BPR loss: 0.43249478936195374
+11:07:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:54   Epoch 3 end
+11:07:54   ------------------------------
+11:07:54   average bpr: 0.433837
+11:07:54   Save checkpoint to model_epoch_4.pth
+11:07:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:54   Evaluate on valid
+11:07:55   mr: 1
+11:07:55   mrr: 1
+11:07:55   hits@1: 1
+11:07:55   hits@3: 1
+11:07:55   hits@10: 1
+11:07:55   NDCG@20: 0.3111467659473419
+11:07:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:55   Epoch 4 begin
+11:07:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:55   Mean positive scores: 2.8457860946655273
+11:07:55   Mean negative scores: 1.4659461975097656
+11:07:55   BPR loss: 0.41832515597343445
+11:07:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:55   Epoch 4 end
+11:07:55   ------------------------------
+11:07:55   average bpr: 0.432047
+11:07:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:55   Epoch 5 begin
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Epoch 5 end
+11:07:56   ------------------------------
+11:07:56   average bpr: 0.420668
+11:07:56   Save checkpoint to model_epoch_6.pth
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Evaluate on valid
+11:07:56   mr: 1
+11:07:56   mrr: 1
+11:07:56   hits@1: 1
+11:07:56   hits@3: 1
+11:07:56   hits@10: 1
+11:07:56   NDCG@20: 0.3179924488067627
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Epoch 6 begin
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Mean positive scores: 3.0180578231811523
+11:07:56   Mean negative scores: 1.5424842834472656
+11:07:56   BPR loss: 0.40641146898269653
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Epoch 6 end
+11:07:56   ------------------------------
+11:07:56   average bpr: 0.41244
+11:07:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:56   Epoch 7 begin
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Epoch 7 end
+11:07:57   ------------------------------
+11:07:57   average bpr: 0.408174
+11:07:57   Save checkpoint to model_epoch_8.pth
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Evaluate on valid
+11:07:57   mr: 1
+11:07:57   mrr: 1
+11:07:57   hits@1: 1
+11:07:57   hits@3: 1
+11:07:57   hits@10: 1
+11:07:57   NDCG@20: 0.31103917956352234
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Epoch 8 begin
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Mean positive scores: 2.978095531463623
+11:07:57   Mean negative scores: 1.5178385972976685
+11:07:57   BPR loss: 0.3951210379600525
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Epoch 8 end
+11:07:57   ------------------------------
+11:07:57   average bpr: 0.39856
+11:07:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:57   Epoch 9 begin
+11:07:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:58   Mean positive scores: 3.108433961868286
+11:07:58   Mean negative scores: 1.4345934391021729
+11:07:58   BPR loss: 0.3523484468460083
+11:07:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:58   Epoch 9 end
+11:07:58   ------------------------------
+11:07:58   average bpr: 0.3901
+11:07:58   Save checkpoint to model_epoch_10.pth
+11:07:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:58   Evaluate on valid
+11:07:58   mr: 1
+11:07:58   mrr: 1
+11:07:58   hits@1: 1
+11:07:58   hits@3: 1
+11:07:58   hits@10: 1
+11:07:58   NDCG@20: 0.3117036819458008
+11:07:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:58   Epoch 10 begin
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Epoch 10 end
+11:07:59   ------------------------------
+11:07:59   average bpr: 0.381146
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Epoch 11 begin
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Mean positive scores: 3.2006683349609375
+11:07:59   Mean negative scores: 1.6436227560043335
+11:07:59   BPR loss: 0.41562023758888245
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Epoch 11 end
+11:07:59   ------------------------------
+11:07:59   average bpr: 0.377854
+11:07:59   Save checkpoint to model_epoch_12.pth
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Evaluate on valid
+11:07:59   mr: 1
+11:07:59   mrr: 1
+11:07:59   hits@1: 1
+11:07:59   hits@3: 1
+11:07:59   hits@10: 1
+11:07:59   NDCG@20: 0.31360337138175964
+11:07:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:07:59   Epoch 12 begin
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Mean positive scores: 3.3471341133117676
+11:08:00   Mean negative scores: 1.5672321319580078
+11:08:00   BPR loss: 0.3632582724094391
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Epoch 12 end
+11:08:00   ------------------------------
+11:08:00   average bpr: 0.370148
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Epoch 13 begin
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Epoch 13 end
+11:08:00   ------------------------------
+11:08:00   average bpr: 0.368402
+11:08:00   Save checkpoint to model_epoch_14.pth
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Evaluate on valid
+11:08:00   mr: 1
+11:08:00   mrr: 1
+11:08:00   hits@1: 1
+11:08:00   hits@3: 1
+11:08:00   hits@10: 1
+11:08:00   NDCG@20: 0.3127668797969818
+11:08:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:00   Epoch 14 begin
+11:08:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:01   Mean positive scores: 3.3291163444519043
+11:08:01   Mean negative scores: 1.5591689348220825
+11:08:01   BPR loss: 0.37372100353240967
+11:08:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:01   Epoch 14 end
+11:08:01   ------------------------------
+11:08:01   average bpr: 0.364376
+11:08:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:01   Epoch 15 begin
+11:08:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:01   Epoch 15 end
+11:08:01   ------------------------------
+11:08:01   average bpr: 0.361573
+11:08:01   Save checkpoint to model_epoch_16.pth
+11:08:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:01   Evaluate on valid
+11:08:02   mr: 1
+11:08:02   mrr: 1
+11:08:02   hits@1: 1
+11:08:02   hits@3: 1
+11:08:02   hits@10: 1
+11:08:02   NDCG@20: 0.3143662214279175
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Epoch 16 begin
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Mean positive scores: 3.5329203605651855
+11:08:02   Mean negative scores: 1.5838656425476074
+11:08:02   BPR loss: 0.345151424407959
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Epoch 16 end
+11:08:02   ------------------------------
+11:08:02   average bpr: 0.361763
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Epoch 17 begin
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Mean positive scores: 3.4721012115478516
+11:08:02   Mean negative scores: 1.583051085472107
+11:08:02   BPR loss: 0.3501732051372528
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Epoch 17 end
+11:08:02   ------------------------------
+11:08:02   average bpr: 0.360756
+11:08:02   Save checkpoint to model_epoch_18.pth
+11:08:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:02   Evaluate on valid
+11:08:03   mr: 1
+11:08:03   mrr: 1
+11:08:03   hits@1: 1
+11:08:03   hits@3: 1
+11:08:03   hits@10: 1
+11:08:03   NDCG@20: 0.31305065751075745
+11:08:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:03   Epoch 18 begin
+11:08:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:03   Epoch 18 end
+11:08:03   ------------------------------
+11:08:03   average bpr: 0.355652
+11:08:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:03   Epoch 19 begin
+11:08:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:03   Mean positive scores: 3.593576192855835
+11:08:03   Mean negative scores: 1.6601529121398926
+11:08:03   BPR loss: 0.3554374575614929
+11:08:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:04   Epoch 19 end
+11:08:04   ------------------------------
+11:08:04   average bpr: 0.353055
+11:08:04   Save checkpoint to model_epoch_20.pth
+11:08:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:04   Evaluate on valid
+11:08:04   mr: 1
+11:08:04   mrr: 1
+11:08:04   hits@1: 1
+11:08:04   hits@3: 1
+11:08:04   hits@10: 1
+11:08:04   NDCG@20: 0.31009793281555176
+11:08:04   Load checkpoint from model_epoch_2.pth
+11:08:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:04   Evaluate on valid
+11:08:04   mr: 1
+11:08:04   mrr: 1
+11:08:04   hits@1: 1
+11:08:04   hits@3: 1
+11:08:04   hits@10: 1
+11:08:04   NDCG@20: 0.3082098066806793
+11:08:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:04   Evaluate on test
+11:08:04   mr: 1
+11:08:04   mrr: 1
+11:08:04   hits@1: 1
+11:08:04   hits@3: 1
+11:08:04   hits@10: 1
+11:08:04   NDCG@20: 0.29719191789627075
