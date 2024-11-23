@@ -2,13 +2,273 @@ import os
 import csv
 import shutil
 import torch
+import requests
+from torch_geometric.utils import to_undirected
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
 from collections import defaultdict
 from ultra.tasks import build_relation_graph
 import matplotlib.pyplot as plt
 
-#this is a test for pushing to git 2
+
+def stratified_split(edge_index, split_ratios, filter_by="item"):
+    """
+    Perform a stratified split based on the frequency distribution of items or users.
+
+    Args:
+        edge_index (torch.Tensor): Edge index tensor of shape [2, num_edges].
+        split_ratios (list of float): Ratios for splitting (e.g., [0.9, 0.1]).
+        filter_by (str): 'item' or 'user' to stratify by column 1 or column 0, respectively.
+
+    Returns:
+        list of torch.Tensor: Edge indices for each split.
+    """
+    split_col = 1 if filter_by == "item" else 0
+    value_counts = defaultdict(list)
+
+    # Group indices by their corresponding values (items or users)
+    for i in range(edge_index.size(1)):
+        value_counts[edge_index[split_col, i].item()].append(i)
+
+    # Shuffle and convert to tensors
+    for key in value_counts:
+        value_counts[key] = torch.tensor(value_counts[key])
+        perm = torch.randperm(value_counts[key].size(0))  # Shuffle within each group
+        value_counts[key] = value_counts[key][perm]
+
+    # Create split lists dynamically based on split_ratios
+    num_splits = len(split_ratios)
+    splits = [[] for _ in range(num_splits)]
+    thresholds = [sum(split_ratios[:i + 1]) for i in range(num_splits)]
+
+    # Distribute indices across splits
+    for indices in value_counts.values():
+        group_size = indices.size(0)
+        cumulative = 0
+        for i, threshold in enumerate(thresholds):
+            split_size = int(threshold * group_size) - cumulative
+            splits[i].append(indices[cumulative:cumulative + split_size])
+            cumulative += split_size
+
+    # Concatenate and shuffle within each split
+    splits = [torch.cat(split) for split in splits if split]  # Avoid empty splits
+    splits = [split[torch.randperm(split.size(0))] for split in splits]
+
+    return splits
+
+
+
+
+def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
+    """Plots the distribution of items in the dataset splits."""
+    split_col = 1 if filter_by == 'item' else 0
+
+    plt.figure(figsize=(12, 6))
+    for i, indices in enumerate(split_indices):
+        item_counts = torch.bincount(edge_index[split_col, indices])
+        plt.plot(item_counts.numpy(), label=f"{labels[i]} (Mean: {item_counts.float().mean():.2f})")
+
+    plt.title("Item Distribution Across Splits")
+    plt.xlabel("Item Index")
+    plt.ylabel("Frequency")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+def validate_graph(data, num_users, num_items):
+    """
+    Validate the structure of the graph.
+    Ensures:
+    - User node IDs are within range [0, num_users - 1].
+    - Item node IDs are within range [num_users, num_users + num_items - 1].
+    - num_users + num_items == num_nodes.
+
+    Args:
+        data (Data): PyG data object containing the graph.
+        num_users (int): Number of users.
+        num_items (int): Number of items.
+    """
+    num_nodes = num_users + num_items
+
+    # Validate num_nodes
+    assert data.num_nodes == num_nodes, (
+        f"Mismatch in num_nodes: {data.num_nodes} != {num_nodes} "
+        f"(num_users + num_items)."
+    )
+
+    # Validate edge index ranges
+    src, dst = data.target_edge_index
+    invalid_users = (src < 0) | (src >= num_users)
+    invalid_items = (dst < num_users) | (dst >= num_nodes)
+    assert not invalid_users.any(), "Some user node IDs are out of range."
+    assert not invalid_items.any(), "Some item node IDs are out of range."
+
+
+    print("Graph validation passed!")
+
+
+
+
+
+
+class Yelp18(InMemoryDataset):
+    """
+    Yelp18 Dataset for recommender systems with ID remapping and stratified splitting.
+    """
+
+    urls = {
+        "train": "https://huggingface.co/datasets/reczoo/Yelp18_m1/raw/main/train.txt",
+        "test": "https://huggingface.co/datasets/reczoo/Yelp18_m1/raw/main/test.txt",
+        "user_list": "https://huggingface.co/datasets/reczoo/Yelp18_m1/resolve/main/user_list.txt",
+        "item_list": "https://huggingface.co/datasets/reczoo/Yelp18_m1/resolve/main/item_list.txt",
+    }
+    name = "yelp18"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_dir(self):
+        return os.path.join(self.root, self.name, "raw")
+
+    @property
+    def processed_dir(self):
+        return os.path.join(self.root, self.name, "processed")
+
+    @property
+    def raw_file_names(self):
+        return ["train.txt", "test.txt", "user_list.txt", "item_list.txt"]
+
+    @property
+    def processed_file_names(self):
+        return "data.pt"
+
+    def download(self):
+        # Download required files
+        for name, url in self.urls.items():
+            path = os.path.join(self.raw_dir, f"{name}.txt")
+            response = requests.get(url)
+            response.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(response.content)
+
+    def load_mappings(self):
+        """Load user and item mappings."""
+        user_map = {}
+        item_map = {}
+    
+        # Read user mappings
+        user_path = os.path.join(self.raw_dir, "user_list.txt")
+        with open(user_path, "r") as f:
+            next(f)  # Skip the header line
+            for line in f:
+                original_id, remap_id = line.strip().split()
+                user_map[original_id] = int(remap_id)
+    
+        # Read item mappings
+        item_path = os.path.join(self.raw_dir, "item_list.txt")
+        with open(item_path, "r") as f:
+            next(f)  # Skip the header line
+            for line in f:
+                original_id, remap_id = line.strip().split()
+                item_map[original_id] = int(remap_id)
+    
+        return user_map, item_map
+
+
+
+    
+
+    def process(self):
+        # Load mappings please note that item_map doesnt map to the offset (+ num_numser)
+        user_map, item_map = self.load_mappings()
+        num_users = len(user_map)
+        num_items = len(item_map)
+
+        def parse_edges(file_path):
+            """Parse edges from file into a list of tuples."""
+            edges = set()  # Avoid duplicate edges
+            with open(file_path, "r") as f:
+                for line in f:
+                    nodes = list(map(int, line.strip().split()))
+                    source, targets = nodes[0], nodes[1:]
+                    for target in targets:
+                        edges.add((source, target))
+            return list(edges)
+
+        # Parse train and test edges
+        train_edges = parse_edges(os.path.join(self.raw_dir, "train.txt"))
+        test_edges = parse_edges(os.path.join(self.raw_dir, "test.txt"))
+
+
+        # Convert edges to tensors (ensure type is int64)
+        train_edge_index = torch.tensor(train_edges, dtype=torch.int64).t()
+        test_edge_index = torch.tensor(test_edges, dtype=torch.int64).t()
+
+
+        # Adjust item IDs to prevent overlap with user IDs
+        train_edge_index[1] += num_users
+        test_edge_index[1] += num_users
+
+        # Perform stratified split for validation
+        train_indices, valid_indices = stratified_split(train_edge_index, [0.9, 0.1], filter_by="item")[:2]
+        train_target_edges = train_edge_index[:, train_indices]
+        valid_target_edges = train_edge_index[:, valid_indices]
+
+        # Combine train edges with reversed edges
+        train_edges = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
+        train_edge_types = torch.cat(
+            [torch.zeros(train_target_edges.size(1), dtype=torch.int64), 
+             torch.ones(train_target_edges.size(1), dtype=torch.int64)], dim=0
+        )
+
+        test_edge_types = torch.zeros(test_edge_index.size(1), dtype=torch.int64)
+        valid_edge_types = torch.zeros(valid_target_edges.size(1), dtype=torch.int64)
+        train_target_edge_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
+
+
+        # Number of nodes and relations
+        num_nodes = num_users + num_items
+        num_relations = 2
+
+        # Construct Data objects
+        train_data = Data(
+            edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types,
+            num_relations=num_relations
+        )
+
+        valid_data = Data(
+            edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types,
+            num_relations=num_relations
+        )
+
+        test_data = Data(
+            edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=test_edge_index, target_edge_type=test_edge_types,
+            num_relations=num_relations
+        )
+
+        # Add metadata
+        for data in [train_data, valid_data, test_data]:
+            data.num_users = num_users
+            data.num_items = num_items
+
+        if self.pre_transform is not None:
+            train_data = self.pre_transform(train_data)
+            valid_data = self.pre_transform(valid_data)
+            test_data = self.pre_transform(test_data)
+
+        #validate_graph(train_data, num_users, num_items)
+        #validate_graph(valid_data, num_users, num_items)
+        #validate_graph(test_data, num_users, num_items)
+
+        # Save processed data
+        torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+        print("yeiy it worked")
+
 
 class GrailInductiveDataset(InMemoryDataset):
 
@@ -206,55 +466,7 @@ def FB15k237(root):
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
-def stratified_split(edge_index, split_ratios, filter_by='item'):
-    """Perform a stratified split based on the frequency distribution of items or users."""
-    split_col = 1 if filter_by == 'item' else 0
-    value_counts = defaultdict(list)
 
-    # Group indices by their corresponding values (items or users)
-    for i in range(edge_index.size(1)):
-        value_counts[edge_index[split_col, i].item()].append(i)
-
-    for key in value_counts:
-        value_counts[key] = torch.tensor(value_counts[key])
-        perm = torch.randperm(value_counts[key].size(0))  # Shuffle within each group
-        value_counts[key] = value_counts[key][perm]
-
-    splits = [[], [], []]
-    thresholds = [sum(split_ratios[:i + 1]) for i in range(len(split_ratios))]
-
-    # Distribute indices across splits
-    for indices in value_counts.values():
-        group_size = indices.size(0)
-        cumulative = 0
-        for i, threshold in enumerate(thresholds):
-            split_size = int(threshold * group_size) - cumulative
-            splits[i].append(indices[cumulative:cumulative + split_size])
-            cumulative += split_size
-
-    splits = [torch.cat(split) for split in splits]
-    splits = [split[torch.randperm(split.size(0))] for split in splits]
-
-
-    return splits
-
-
-
-def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
-    """Plots the distribution of items in the dataset splits."""
-    split_col = 1 if filter_by == 'item' else 0
-
-    plt.figure(figsize=(12, 6))
-    for i, indices in enumerate(split_indices):
-        item_counts = torch.bincount(edge_index[split_col, indices])
-        plt.plot(item_counts.numpy(), label=f"{labels[i]} (Mean: {item_counts.float().mean():.2f})")
-
-    plt.title("Item Distribution Across Splits")
-    plt.xlabel("Item Index")
-    plt.ylabel("Frequency")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
 
 def MovieLens100k(root):
     # Load dataset

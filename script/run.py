@@ -462,7 +462,7 @@ if __name__ == "__main__":
         embedding_item_cfg = cfg.model.embedding_item
     )
     if light_gcn:
-        model = My_LightGCN()
+        model = My_LightGCN(train_data.num_nodes)
     
     #model = Ultra(
     #    rel_model_cfg= rel_model_cfg,

@@ -7,9 +7,9 @@ from ultra.base_nbfnet import BaseNBFNet
 from torch_geometric.nn.models import LightGCN
 
 class My_LightGCN(nn.Module):
-    def __init__(self):
+    def __init__(self, num_nodes):
         super(My_LightGCN, self).__init__()
-        self.gcn = LightGCN(2593, 64, 3)
+        self.gcn = LightGCN(num_nodes, 64, 3)
     def forward(self, data, batch):
         
         """
