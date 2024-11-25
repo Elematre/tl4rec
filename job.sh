@@ -52,8 +52,9 @@ conda info --envs
 
 cd ${DIRECTORY}
 
-# Execute your code 62 bpe for light gcn and 1978 for simple
-python script/run.py -c config/recommender/first_steps.yaml --dataset MovieLens100k --epochs 20 --bpe 62 --gpus "[0]" --ckpt null
+# Execute your code 62 bpe for light gcn and 1978 for simple on movielense
+# on yelp 48829 for bs 64
+python script/run.py -c config/recommender/first_steps.yaml --dataset Yelp18 --epochs 10 --bpe 48829 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
