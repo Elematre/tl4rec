@@ -1,8 +1,8 @@
-output_dir: ~/git/ULTRA/output
+output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 
 dataset:
   class: {{ dataset }}
-  root: ~/git/ULTRA/kg-datasets/
+  root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
 model:
@@ -58,5 +58,6 @@ train:
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
+  loss: bce
 
 checkpoint: {{ ckpt }}

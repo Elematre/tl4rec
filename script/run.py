@@ -79,6 +79,7 @@ def train_and_validate_old_cel(cfg, model, train_data, valid_data, device, logge
                 pred = parallel_model(train_data, batch)
                 target = torch.zeros_like(pred)
                 target[:, 0] = 1
+                
                 loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
                 neg_weight = torch.ones_like(pred)
                 if cfg.task.adversarial_temperature > 0:
@@ -202,10 +203,21 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                         neg_weight[:, 1:] = F.softmax(pred[:, 1:] / cfg.task.adversarial_temperature, dim=-1)
                 else:
                     neg_weight[:, 1:] = 1 / cfg.task.num_negative
+
+                
+                
                     
-                pos_scores= pred[:, 0]
-                neg_scores= (pred[:, 1:] * neg_weight[:, 1:]).sum(dim=-1)
-                loss = - (F.logsigmoid(pos_scores - neg_scores).mean())
+                if cfg.train["loss"] == "bpr":
+                    pos_scores= pred[:, 0]
+                    neg_scores= (pred[:, 1:] * neg_weight[:, 1:]).sum(dim=-1)
+                    loss = - (F.logsigmoid(pos_scores - neg_scores).mean())
+                else:
+                    loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+                    loss = (loss * neg_weight).sum(dim=-1) / neg_weight.sum(dim=-1)
+                    loss = loss.mean()
+                    
+                    
+                
 
                 loss.backward()
                 # Apply gradient clipping
@@ -216,13 +228,22 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
-                    logger.warning(f"Mean positive scores: {pos_scores.mean().item()}")
-                    logger.warning(f"Mean negative scores: {neg_scores.mean().item()}")
-                    logger.warning(f"BPR loss: {loss.item()}")
+                    
                     if wandb_on:
                         wandb.log({"training/loss": loss})
-                        wandb.log({"training/pos_scores": pos_scores.mean().item()})
-                        wandb.log({"training/neg_scores": neg_scores.mean().item()})
+                    if cfg.train["loss"] == "bpr":
+                        logger.warning(f"Mean positive scores: {pos_scores.mean().item()}")
+                        logger.warning(f"Mean negative scores: {neg_scores.mean().item()}")
+                        logger.warning(f"BPR loss: {loss.item()}")
+                    else: 
+                        logger.warning("binary cross entropy: %g" % loss)
+                    if wandb_on:
+                        if cfg.train["loss"] == "bpr":
+                            wandb.log({"training/pos_scores": pos_scores.mean().item()})
+                            wandb.log({"training/neg_scores": neg_scores.mean().item()})
+                            
+                        wandb.log({"training/loss": loss})
+                            
                 losses.append(loss.item())
                 batch_id += 1
 
@@ -231,7 +252,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 logger.warning(separator)
                 logger.warning("Epoch %d end" % epoch)
                 logger.warning(line)
-                logger.warning("average bpr: %g" % avg_loss)
+                logger.warning("average loss: %g" % avg_loss)
                 
             
 
@@ -272,7 +293,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
-
+        
     test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
     test_loader = torch_data.DataLoader(test_triplets, cfg.train.batch_size, sampler=sampler)
@@ -293,7 +314,6 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
         else:
             t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch)
-
         # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
         
         pos_h_index, pos_t_index, pos_r_index = batch.t()
@@ -309,7 +329,6 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         t_mask_inv = t_mask_inv.logical_xor(t_relevance)
         h_mask_inv = h_mask_inv.logical_xor(h_relevance)
 
-        
         t_pred[t_mask_inv] = float('-inf')
         h_pred[h_mask_inv] = float('-inf')
         #compute t_ndcg 
@@ -330,7 +349,6 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         num_tail_negs += [num_t_negative]
 
     # the 3 code section below mainly ensure correct behaviour in a multi-core environment
-    
     ranking = torch.cat(rankings)
     num_negative = torch.cat(num_negatives)
     all_size = torch.zeros(world_size, dtype=torch.long, device=device)
