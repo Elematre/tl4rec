@@ -1,0 +1,765 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+11:32:02   Random seed: 1024
+11:32:02   Config file: config/recommender/first_steps.yaml
+11:32:02   {'checkpoint': None,
+ 'dataset': {'class': 'Yelp18', 'root': '~/git/ULTRA/kg-datasets/'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'optimizer': {'class': 'AdamW', 'lr': 0.005},
+ 'output_dir': '~/git/ULTRA/output',
+ 'task': {'adversarial_temperature': 0,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10'],
+          'name': 'TransductiveInference',
+          'num_negative': 1,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 48829,
+           'batch_size': 64,
+           'gpus': [0],
+           'log_interval': 100,
+           'num_epoch': 10}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /home/trachsele/git/ULTRA/output/Ultra/Yelp18/2024-11-25-11-32-02/wandb/run-20241125_113203-9kwrk06e
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-Yelp18-2024-11-25_11-32
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/9kwrk06e
+11:32:04   Yelp18 dataset
+11:32:04   #train: 1097007, #valid: 140252, #test: 324147
+11:32:04   ------------------------------
+11:32:04   Number of parameters: 4461824
+11:32:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:04   Epoch 0 begin
+11:32:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:04   Mean positive scores: 7.143324182834476e-06
+11:32:04   Mean negative scores: -3.4838876672438346e-07
+11:32:04   BPR loss: 0.6931434273719788
+11:32:05   Note: NumExpr detected 32 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+11:32:05   NumExpr defaulting to 8 threads.
+11:32:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:10   Mean positive scores: 0.9635251760482788
+11:32:10   Mean negative scores: -0.013238638639450073
+11:32:10   BPR loss: 0.39978209137916565
+11:32:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:14   Mean positive scores: 1.765956163406372
+11:32:14   Mean negative scores: 0.037460654973983765
+11:32:14   BPR loss: 0.27429625391960144
+11:32:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:19   Mean positive scores: 1.9888159036636353
+11:32:19   Mean negative scores: 0.12136664986610413
+11:32:19   BPR loss: 0.28129327297210693
+11:32:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:23   Mean positive scores: 1.9648211002349854
+11:32:23   Mean negative scores: 0.028568193316459656
+11:32:23   BPR loss: 0.2840254306793213
+11:32:27   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:28   Mean positive scores: 2.956756591796875
+11:32:28   Mean negative scores: -0.09692520648241043
+11:32:28   BPR loss: 0.23030969500541687
+11:32:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:32   Mean positive scores: 2.5641396045684814
+11:32:32   Mean negative scores: -0.175918847322464
+11:32:32   BPR loss: 0.21835048496723175
+11:32:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:36   Mean positive scores: 2.974522590637207
+11:32:36   Mean negative scores: 0.4346364438533783
+11:32:36   BPR loss: 0.30918142199516296
+11:32:41   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:41   Mean positive scores: 2.819061279296875
+11:32:41   Mean negative scores: 0.15136316418647766
+11:32:41   BPR loss: 0.23393279314041138
+11:32:45   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:45   Mean positive scores: 3.291504144668579
+11:32:45   Mean negative scores: -0.07166368514299393
+11:32:45   BPR loss: 0.16597437858581543
+11:32:50   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:50   Mean positive scores: 3.775756597518921
+11:32:50   Mean negative scores: -0.040234245359897614
+11:32:50   BPR loss: 0.11054354161024094
+11:32:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:54   Mean positive scores: 3.4261677265167236
+11:32:54   Mean negative scores: 0.25201135873794556
+11:32:54   BPR loss: 0.23983874917030334
+11:32:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:59   Mean positive scores: 3.7249557971954346
+11:32:59   Mean negative scores: -0.057483695447444916
+11:32:59   BPR loss: 0.11496099084615707
+11:33:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:03   Mean positive scores: 3.850872278213501
+11:33:03   Mean negative scores: 0.08862416446208954
+11:33:03   BPR loss: 0.1770622879266739
+11:33:08   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:08   Mean positive scores: 3.7227067947387695
+11:33:08   Mean negative scores: 0.42352402210235596
+11:33:08   BPR loss: 0.27084922790527344
+11:33:12   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:12   Mean positive scores: 3.5531232357025146
+11:33:12   Mean negative scores: 0.3083733916282654
+11:33:12   BPR loss: 0.23658432066440582
+11:33:17   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:17   Mean positive scores: 3.5902798175811768
+11:33:17   Mean negative scores: 0.15755730867385864
+11:33:17   BPR loss: 0.24193377792835236
+11:33:21   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:21   Mean positive scores: 4.4705610275268555
+11:33:21   Mean negative scores: -0.12331865727901459
+11:33:21   BPR loss: 0.12424135953187943
+11:33:26   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:26   Mean positive scores: 3.632854461669922
+11:33:26   Mean negative scores: 0.24132049083709717
+11:33:26   BPR loss: 0.20615704357624054
+11:33:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:30   Mean positive scores: 3.909571886062622
+11:33:30   Mean negative scores: -0.002175845205783844
+11:33:30   BPR loss: 0.12003656476736069
+11:33:35   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:35   Mean positive scores: 4.678534984588623
+11:33:35   Mean negative scores: -0.19667062163352966
+11:33:35   BPR loss: 0.0886794850230217
+11:33:39   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:40   Mean positive scores: 4.604096412658691
+11:33:40   Mean negative scores: 0.18767361342906952
+11:33:40   BPR loss: 0.12916253507137299
+11:33:44   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:44   Mean positive scores: 5.004605770111084
+11:33:44   Mean negative scores: 0.5854793787002563
+11:33:44   BPR loss: 0.24670428037643433
+11:33:49   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:49   Mean positive scores: 3.642096519470215
+11:33:49   Mean negative scores: -0.04649294167757034
+11:33:49   BPR loss: 0.2773747742176056
+11:33:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:53   Mean positive scores: 4.092461585998535
+11:33:53   Mean negative scores: -0.08707152307033539
+11:33:53   BPR loss: 0.16496968269348145
+11:33:58   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:33:58   Mean positive scores: 5.136111736297607
+11:33:58   Mean negative scores: -0.27747565507888794
+11:33:58   BPR loss: 0.09582455456256866
+11:34:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:02   Mean positive scores: 3.940303325653076
+11:34:02   Mean negative scores: -0.11910419166088104
+11:34:02   BPR loss: 0.17453442513942719
+11:34:07   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:07   Mean positive scores: 4.075505256652832
+11:34:07   Mean negative scores: 0.44044557213783264
+11:34:07   BPR loss: 0.19710278511047363
+11:34:11   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:11   Mean positive scores: 4.825824737548828
+11:34:11   Mean negative scores: -0.09625187516212463
+11:34:11   BPR loss: 0.13793502748012543
+11:34:16   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:16   Mean positive scores: 3.916761875152588
+11:34:16   Mean negative scores: 0.24877747893333435
+11:34:16   BPR loss: 0.19175536930561066
+11:34:20   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:20   Mean positive scores: 4.878819942474365
+11:34:20   Mean negative scores: 0.473347544670105
+11:34:20   BPR loss: 0.22027692198753357
+11:34:25   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:25   Mean positive scores: 4.214734077453613
+11:34:25   Mean negative scores: -0.1853032112121582
+11:34:25   BPR loss: 0.16817238926887512
+11:34:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:30   Mean positive scores: 4.366650581359863
+11:34:30   Mean negative scores: 0.14821621775627136
+11:34:30   BPR loss: 0.16177873313426971
+11:34:34   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:34   Mean positive scores: 4.182984352111816
+11:34:34   Mean negative scores: 0.11890283226966858
+11:34:34   BPR loss: 0.24749809503555298
+11:34:39   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:39   Mean positive scores: 4.839935302734375
+11:34:39   Mean negative scores: -0.1365494728088379
+11:34:39   BPR loss: 0.15805307030677795
+11:34:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:43   Mean positive scores: 4.369021415710449
+11:34:43   Mean negative scores: 0.022301509976387024
+11:34:43   BPR loss: 0.2068159282207489
+11:34:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:48   Mean positive scores: 4.1020307540893555
+11:34:48   Mean negative scores: 0.10038327425718307
+11:34:48   BPR loss: 0.2057476043701172
+11:34:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:52   Mean positive scores: 4.776613235473633
+11:34:52   Mean negative scores: 0.0456618070602417
+11:34:52   BPR loss: 0.19263917207717896
+11:34:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:57   Mean positive scores: 5.086526393890381
+11:34:57   Mean negative scores: -0.1126914918422699
+11:34:57   BPR loss: 0.1694096028804779
+11:35:02   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:02   Mean positive scores: 5.399219036102295
+11:35:02   Mean negative scores: 0.5538980960845947
+11:35:02   BPR loss: 0.10699335485696793
+11:35:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:06   Mean positive scores: 4.651705265045166
+11:35:06   Mean negative scores: 0.07125319540500641
+11:35:06   BPR loss: 0.19249342381954193
+11:35:11   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:11   Mean positive scores: 5.069662094116211
+11:35:11   Mean negative scores: 0.04713256657123566
+11:35:11   BPR loss: 0.271547794342041
+11:35:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:15   Mean positive scores: 4.560479164123535
+11:35:15   Mean negative scores: 0.09476470947265625
+11:35:15   BPR loss: 0.16943053901195526
+11:35:20   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:20   Mean positive scores: 4.513044834136963
+11:35:20   Mean negative scores: 0.13999582827091217
+11:35:20   BPR loss: 0.11596877872943878
+11:35:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:24   Mean positive scores: 5.02140474319458
+11:35:24   Mean negative scores: -0.035762347280979156
+11:35:24   BPR loss: 0.18430471420288086
+11:35:29   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:29   Mean positive scores: 4.086454391479492
+11:35:29   Mean negative scores: 0.10319656878709793
+11:35:29   BPR loss: 0.2439630776643753
+11:35:34   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:34   Mean positive scores: 5.297785758972168
+11:35:34   Mean negative scores: -0.47153204679489136
+11:35:34   BPR loss: 0.0697300136089325
+11:35:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:38   Mean positive scores: 5.227292060852051
+11:35:38   Mean negative scores: -0.01137302815914154
+11:35:38   BPR loss: 0.134649395942688
+11:35:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:43   Mean positive scores: 4.395987510681152
+11:35:43   Mean negative scores: 0.7493090629577637
+11:35:43   BPR loss: 0.3237806558609009
+11:35:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:48   Mean positive scores: 4.9275221824646
+11:35:48   Mean negative scores: -0.06407149881124496
+11:35:48   BPR loss: 0.18133389949798584
+11:35:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:52   Mean positive scores: 4.895200729370117
+11:35:52   Mean negative scores: 0.42444857954978943
+11:35:52   BPR loss: 0.561241626739502
+11:35:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:35:57   Mean positive scores: 5.013925075531006
+11:35:57   Mean negative scores: 0.20281599462032318
+11:35:57   BPR loss: 0.12242212146520615
+11:36:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:01   Mean positive scores: 5.521111965179443
+11:36:01   Mean negative scores: 0.08935810625553131
+11:36:01   BPR loss: 0.1912698596715927
+11:36:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:06   Mean positive scores: 4.772744178771973
+11:36:06   Mean negative scores: 0.4995519518852234
+11:36:06   BPR loss: 0.19265510141849518
+11:36:11   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:11   Mean positive scores: 4.981620788574219
+11:36:11   Mean negative scores: 0.38528579473495483
+11:36:11   BPR loss: 0.2500104308128357
+11:36:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:15   Mean positive scores: 4.4424543380737305
+11:36:15   Mean negative scores: 0.7349335551261902
+11:36:15   BPR loss: 0.37174054980278015
+11:36:20   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:20   Mean positive scores: 5.019350528717041
+11:36:20   Mean negative scores: 0.4462891221046448
+11:36:20   BPR loss: 0.21484914422035217
+11:36:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:24   Mean positive scores: 4.485623359680176
+11:36:24   Mean negative scores: 0.3916550576686859
+11:36:24   BPR loss: 0.18897725641727448
+11:36:29   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:29   Mean positive scores: 5.025967121124268
+11:36:29   Mean negative scores: -0.03226596117019653
+11:36:29   BPR loss: 0.11261045187711716
+11:36:34   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:34   Mean positive scores: 5.143308639526367
+11:36:34   Mean negative scores: -0.012637972831726074
+11:36:34   BPR loss: 0.11875155568122864
+11:36:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:38   Mean positive scores: 5.47091007232666
+11:36:38   Mean negative scores: 0.010741926729679108
+11:36:38   BPR loss: 0.24197566509246826
+11:36:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:43   Mean positive scores: 5.013832092285156
+11:36:43   Mean negative scores: 0.024809136986732483
+11:36:43   BPR loss: 0.08737996220588684
+11:36:47   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:47   Mean positive scores: 5.32138204574585
+11:36:47   Mean negative scores: 0.4580150544643402
+11:36:47   BPR loss: 0.32819485664367676
+11:36:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:52   Mean positive scores: 4.749350547790527
+11:36:52   Mean negative scores: -0.5564635992050171
+11:36:52   BPR loss: 0.07510371506214142
+11:36:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:57   Mean positive scores: 5.150245189666748
+11:36:57   Mean negative scores: 0.13001865148544312
+11:36:57   BPR loss: 0.1403544396162033
+11:37:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:01   Mean positive scores: 5.683812618255615
+11:37:01   Mean negative scores: 0.2141335904598236
+11:37:01   BPR loss: 0.19229534268379211
+11:37:06   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:06   Mean positive scores: 5.290554046630859
+11:37:06   Mean negative scores: 0.12904538214206696
+11:37:06   BPR loss: 0.15048620104789734
+11:37:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:10   Mean positive scores: 5.725066661834717
+11:37:10   Mean negative scores: 0.47330185770988464
+11:37:10   BPR loss: 0.16725236177444458
+11:37:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:15   Mean positive scores: 4.701694488525391
+11:37:15   Mean negative scores: 0.04011944308876991
+11:37:15   BPR loss: 0.1460176706314087
+11:37:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:20   Mean positive scores: 5.174232482910156
+11:37:20   Mean negative scores: 0.6838134527206421
+11:37:20   BPR loss: 0.23516945540905
+11:37:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:24   Mean positive scores: 4.543315887451172
+11:37:24   Mean negative scores: -0.07299484312534332
+11:37:24   BPR loss: 0.14181777834892273
+11:37:29   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:29   Mean positive scores: 5.7304558753967285
+11:37:29   Mean negative scores: 0.1665349155664444
+11:37:29   BPR loss: 0.1905103325843811
+11:37:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:33   Mean positive scores: 5.330286026000977
+11:37:33   Mean negative scores: 0.2693706452846527
+11:37:33   BPR loss: 0.13996757566928864
+11:37:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:38   Mean positive scores: 4.739334583282471
+11:37:38   Mean negative scores: 0.08318845927715302
+11:37:38   BPR loss: 0.08378246426582336
+11:37:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:42   Mean positive scores: 4.935003280639648
+11:37:42   Mean negative scores: 0.29389092326164246
+11:37:42   BPR loss: 0.24261879920959473
+11:37:47   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:47   Mean positive scores: 4.855963706970215
+11:37:47   Mean negative scores: 0.3547903597354889
+11:37:47   BPR loss: 0.16017524898052216
+11:37:52   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:52   Mean positive scores: 5.4788432121276855
+11:37:52   Mean negative scores: 0.08586777746677399
+11:37:52   BPR loss: 0.1014387458562851
+11:37:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:37:56   Mean positive scores: 4.576267719268799
+11:37:56   Mean negative scores: 0.10368911176919937
+11:37:56   BPR loss: 0.23369728028774261
+11:38:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:01   Mean positive scores: 4.346366882324219
+11:38:01   Mean negative scores: 0.3956795930862427
+11:38:01   BPR loss: 0.2332305908203125
+11:38:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:05   Mean positive scores: 5.537103652954102
+11:38:05   Mean negative scores: 0.48838865756988525
+11:38:05   BPR loss: 0.16804823279380798
+11:38:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:10   Mean positive scores: 5.293019771575928
+11:38:10   Mean negative scores: 0.3724774718284607
+11:38:10   BPR loss: 0.2319403886795044
+11:38:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:15   Mean positive scores: 5.023520469665527
+11:38:15   Mean negative scores: 0.23742635548114777
+11:38:15   BPR loss: 0.19229239225387573
+11:38:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:19   Mean positive scores: 4.984468460083008
+11:38:19   Mean negative scores: 0.11239096522331238
+11:38:19   BPR loss: 0.2731091380119324
+11:38:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:24   Mean positive scores: 5.221548080444336
+11:38:24   Mean negative scores: 0.1825208067893982
+11:38:24   BPR loss: 0.18810822069644928
+11:38:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:28   Mean positive scores: 5.824416637420654
+11:38:28   Mean negative scores: 0.537599503993988
+11:38:28   BPR loss: 0.19913235306739807
+11:38:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:33   Mean positive scores: 5.13718318939209
+11:38:33   Mean negative scores: 0.3217832148075104
+11:38:33   BPR loss: 0.0670449435710907
+11:38:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:38   Mean positive scores: 5.130704879760742
+11:38:38   Mean negative scores: 0.10193762928247452
+11:38:38   BPR loss: 0.059304624795913696
+11:38:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:42   Mean positive scores: 4.538553237915039
+11:38:42   Mean negative scores: 0.5078043341636658
+11:38:42   BPR loss: 0.26050901412963867
+11:38:47   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:47   Mean positive scores: 4.942508220672607
+11:38:47   Mean negative scores: 0.44278770685195923
+11:38:47   BPR loss: 0.24076375365257263
+11:38:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:51   Mean positive scores: 6.16217041015625
+11:38:51   Mean negative scores: 0.18619759380817413
+11:38:51   BPR loss: 0.14839984476566315
+11:38:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:38:56   Mean positive scores: 5.387953281402588
+11:38:56   Mean negative scores: 0.45394790172576904
+11:38:56   BPR loss: 0.16160856187343597
+11:39:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:01   Mean positive scores: 4.893596649169922
+11:39:01   Mean negative scores: 0.11478988826274872
+11:39:01   BPR loss: 0.20082344114780426
+11:39:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:05   Mean positive scores: 5.56098747253418
+11:39:05   Mean negative scores: -0.20936408638954163
+11:39:05   BPR loss: 0.08016664534807205
+11:39:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:10   Mean positive scores: 5.621530055999756
+11:39:10   Mean negative scores: -0.07049503922462463
+11:39:10   BPR loss: 0.11574441194534302
+11:39:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:14   Mean positive scores: 5.320560932159424
+11:39:14   Mean negative scores: 0.175636887550354
+11:39:14   BPR loss: 0.1493896245956421
+11:39:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:19   Mean positive scores: 6.074398040771484
+11:39:19   Mean negative scores: -0.0677012950181961
+11:39:19   BPR loss: 0.08869848400354385
+11:39:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:23   Mean positive scores: 5.659435272216797
+11:39:23   Mean negative scores: 0.27093082666397095
+11:39:23   BPR loss: 0.17311960458755493
+11:39:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:28   Mean positive scores: 5.838274002075195
+11:39:28   Mean negative scores: 0.17881901562213898
+11:39:28   BPR loss: 0.08565910160541534
+11:39:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:33   Mean positive scores: 5.313832759857178
+11:39:33   Mean negative scores: 0.1828976571559906
+11:39:33   BPR loss: 0.15062806010246277
+11:39:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:37   Mean positive scores: 4.912114143371582
+11:39:37   Mean negative scores: 0.7968651056289673
+11:39:37   BPR loss: 0.3236920237541199
+11:39:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:42   Mean positive scores: 5.2618255615234375
+11:39:42   Mean negative scores: 0.2889549732208252
+11:39:42   BPR loss: 0.12613075971603394
+11:39:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:47   Mean positive scores: 4.945832252502441
+11:39:47   Mean negative scores: 0.29040923714637756
+11:39:47   BPR loss: 0.13457247614860535
+11:39:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:51   Mean positive scores: 5.121340274810791
+11:39:51   Mean negative scores: 0.3164072036743164
+11:39:51   BPR loss: 0.23978203535079956
+11:39:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:56   Mean positive scores: 5.141670227050781
+11:39:56   Mean negative scores: 0.27916210889816284
+11:39:56   BPR loss: 0.1977342665195465
+11:40:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:00   Mean positive scores: 5.134127140045166
+11:40:00   Mean negative scores: 0.09060368686914444
+11:40:00   BPR loss: 0.06996139138936996
+11:40:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:05   Mean positive scores: 5.680990219116211
+11:40:05   Mean negative scores: 0.2642931640148163
+11:40:05   BPR loss: 0.07883649319410324
+11:40:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:10   Mean positive scores: 6.340497970581055
+11:40:10   Mean negative scores: 0.03229773789644241
+11:40:10   BPR loss: 0.11365267634391785
+11:40:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:14   Mean positive scores: 5.972999572753906
+11:40:14   Mean negative scores: 0.45574456453323364
+11:40:14   BPR loss: 0.1278797835111618
+11:40:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:19   Mean positive scores: 5.279155254364014
+11:40:19   Mean negative scores: 0.2330162525177002
+11:40:19   BPR loss: 0.16626176238059998
+11:40:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:23   Mean positive scores: 5.655184745788574
+11:40:23   Mean negative scores: 0.4335542321205139
+11:40:23   BPR loss: 0.19184526801109314
+11:40:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:28   Mean positive scores: 5.620000839233398
+11:40:28   Mean negative scores: 0.35608190298080444
+11:40:28   BPR loss: 0.08255010843276978
+11:40:33   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:33   Mean positive scores: 6.231054306030273
+11:40:33   Mean negative scores: 0.29629257321357727
+11:40:33   BPR loss: 0.1613968312740326
+11:40:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:37   Mean positive scores: 5.766935348510742
+11:40:37   Mean negative scores: 0.18888665735721588
+11:40:37   BPR loss: 0.13759072124958038
+11:40:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:42   Mean positive scores: 5.6703314781188965
+11:40:42   Mean negative scores: 0.39156121015548706
+11:40:42   BPR loss: 0.14782726764678955
+11:40:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:46   Mean positive scores: 6.543416976928711
+11:40:46   Mean negative scores: 0.7562670707702637
+11:40:46   BPR loss: 0.18075992166996002
+11:40:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:51   Mean positive scores: 5.70842981338501
+11:40:51   Mean negative scores: 0.3840833902359009
+11:40:51   BPR loss: 0.1281353384256363
+11:40:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:40:56   Mean positive scores: 5.6470794677734375
+11:40:56   Mean negative scores: 0.11474104970693588
+11:40:56   BPR loss: 0.1066514104604721
+11:41:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:00   Mean positive scores: 5.842945575714111
+11:41:00   Mean negative scores: -0.09884864091873169
+11:41:00   BPR loss: 0.06195835769176483
+11:41:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:05   Mean positive scores: 5.204679012298584
+11:41:05   Mean negative scores: 0.23729291558265686
+11:41:05   BPR loss: 0.09968750923871994
+11:41:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:09   Mean positive scores: 6.199848175048828
+11:41:09   Mean negative scores: 0.6942508220672607
+11:41:09   BPR loss: 0.2044525444507599
+11:41:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:14   Mean positive scores: 5.538321495056152
+11:41:14   Mean negative scores: 0.2359757274389267
+11:41:14   BPR loss: 0.12098120152950287
+11:41:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:19   Mean positive scores: 5.296141624450684
+11:41:19   Mean negative scores: 0.4311593174934387
+11:41:19   BPR loss: 0.14824867248535156
+11:41:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:23   Mean positive scores: 4.676052093505859
+11:41:23   Mean negative scores: 0.394573450088501
+11:41:23   BPR loss: 0.30521678924560547
+11:41:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:28   Mean positive scores: 5.766446113586426
+11:41:28   Mean negative scores: 0.2632085978984833
+11:41:28   BPR loss: 0.1637590080499649
+11:41:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:32   Mean positive scores: 5.601561069488525
+11:41:32   Mean negative scores: 0.4638879895210266
+11:41:32   BPR loss: 0.1500401496887207
+11:41:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:37   Mean positive scores: 5.710811138153076
+11:41:37   Mean negative scores: 0.2896963953971863
+11:41:37   BPR loss: 0.1411685198545456
+11:41:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:42   Mean positive scores: 5.279743194580078
+11:41:42   Mean negative scores: 0.3750797510147095
+11:41:42   BPR loss: 0.18989995121955872
+11:41:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:46   Mean positive scores: 5.230714797973633
+11:41:46   Mean negative scores: 0.036230750381946564
+11:41:46   BPR loss: 0.1321117877960205
+11:41:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:51   Mean positive scores: 5.564845085144043
+11:41:51   Mean negative scores: 0.19961223006248474
+11:41:51   BPR loss: 0.09917064011096954
+11:41:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:55   Mean positive scores: 5.193641662597656
+11:41:55   Mean negative scores: -0.08497266471385956
+11:41:55   BPR loss: 0.13387706875801086
+11:42:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:00   Mean positive scores: 5.450339317321777
+11:42:00   Mean negative scores: 0.14804789423942566
+11:42:00   BPR loss: 0.09493551403284073
+11:42:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:05   Mean positive scores: 5.617935657501221
+11:42:05   Mean negative scores: 0.16400058567523956
+11:42:05   BPR loss: 0.18375499546527863
+11:42:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:09   Mean positive scores: 5.532100200653076
+11:42:09   Mean negative scores: 0.5825981497764587
+11:42:09   BPR loss: 0.22719499468803406
+11:42:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:14   Mean positive scores: 5.836523056030273
+11:42:14   Mean negative scores: 0.12795454263687134
+11:42:14   BPR loss: 0.10734277963638306
+11:42:19   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:19   Mean positive scores: 5.44246768951416
+11:42:19   Mean negative scores: -0.10034607350826263
+11:42:19   BPR loss: 0.052765123546123505
+11:42:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:23   Mean positive scores: 5.857832431793213
+11:42:23   Mean negative scores: 0.00041615962982177734
+11:42:23   BPR loss: 0.07111693173646927
+11:42:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:28   Mean positive scores: 5.877882957458496
+11:42:28   Mean negative scores: 0.3541713356971741
+11:42:28   BPR loss: 0.09015808254480362
+11:42:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:32   Mean positive scores: 5.299627304077148
+11:42:32   Mean negative scores: 0.9367715716362
+11:42:32   BPR loss: 0.2237948477268219
+11:42:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:37   Mean positive scores: 4.705645561218262
+11:42:37   Mean negative scores: 0.5874761343002319
+11:42:37   BPR loss: 0.3629933297634125
+11:42:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:42   Mean positive scores: 6.637303352355957
+11:42:42   Mean negative scores: 0.22900260984897614
+11:42:42   BPR loss: 0.12418408691883087
+11:42:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:46   Mean positive scores: 5.605465412139893
+11:42:46   Mean negative scores: 0.485479474067688
+11:42:46   BPR loss: 0.22508201003074646
+11:42:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:51   Mean positive scores: 5.7932844161987305
+11:42:51   Mean negative scores: 0.4360853433609009
+11:42:51   BPR loss: 0.08659660816192627
+11:42:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:42:55   Mean positive scores: 5.4901018142700195
+11:42:55   Mean negative scores: 0.25874534249305725
+11:42:55   BPR loss: 0.15758658945560455
+11:43:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:00   Mean positive scores: 5.799440383911133
+11:43:00   Mean negative scores: 0.24308794736862183
+11:43:00   BPR loss: 0.10859094560146332
+11:43:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:05   Mean positive scores: 5.782255172729492
+11:43:05   Mean negative scores: 0.20469865202903748
+11:43:05   BPR loss: 0.1475335657596588
+11:43:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:09   Mean positive scores: 5.722893238067627
+11:43:09   Mean negative scores: 0.6654819846153259
+11:43:09   BPR loss: 0.11658667027950287
+11:43:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:14   Mean positive scores: 5.549066543579102
+11:43:14   Mean negative scores: 0.23110182583332062
+11:43:14   BPR loss: 0.23109731078147888
+11:43:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:18   Mean positive scores: 5.163867950439453
+11:43:18   Mean negative scores: 0.04227856546640396
+11:43:18   BPR loss: 0.07760216295719147
+11:43:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:23   Mean positive scores: 5.504355430603027
+11:43:23   Mean negative scores: -0.15713569521903992
+11:43:23   BPR loss: 0.06483866274356842
+11:43:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:28   Mean positive scores: 5.547768592834473
+11:43:28   Mean negative scores: 0.42456209659576416
+11:43:28   BPR loss: 0.07734992355108261
+11:43:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:32   Mean positive scores: 6.1995391845703125
+11:43:32   Mean negative scores: 0.14193661510944366
+11:43:32   BPR loss: 0.17699499428272247
+11:43:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:37   Mean positive scores: 5.21174430847168
+11:43:37   Mean negative scores: 0.26158034801483154
+11:43:37   BPR loss: 0.11437031626701355
+11:43:41   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:41   Mean positive scores: 5.470830917358398
+11:43:41   Mean negative scores: 0.5128222703933716
+11:43:41   BPR loss: 0.20397254824638367
+11:43:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:46   Mean positive scores: 4.883929252624512
+11:43:46   Mean negative scores: 0.3432082235813141
+11:43:46   BPR loss: 0.13947273790836334
+11:43:50   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:50   Mean positive scores: 5.76939582824707
+11:43:50   Mean negative scores: 0.2687053978443146
+11:43:50   BPR loss: 0.14378568530082703
+11:43:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:55   Mean positive scores: 5.368433952331543
+11:43:55   Mean negative scores: 0.275331050157547
+11:43:55   BPR loss: 0.13864535093307495
+11:44:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:00   Mean positive scores: 5.8055925369262695
+11:44:00   Mean negative scores: 0.9222389459609985
+11:44:00   BPR loss: 0.23494459688663483
+11:44:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:04   Mean positive scores: 5.497306823730469
+11:44:04   Mean negative scores: 0.1720983237028122
+11:44:04   BPR loss: 0.17809124290943146
+11:44:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:09   Mean positive scores: 6.148578643798828
+11:44:09   Mean negative scores: 0.2571314573287964
+11:44:09   BPR loss: 0.06865783780813217
+11:44:13   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:13   Mean positive scores: 5.942792892456055
+11:44:13   Mean negative scores: 0.7414387464523315
+11:44:13   BPR loss: 0.38862407207489014
+11:44:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:18   Mean positive scores: 4.798914909362793
+11:44:18   Mean negative scores: 0.08709120750427246
+11:44:18   BPR loss: 0.06659740209579468
+11:44:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:23   Mean positive scores: 5.729612350463867
+11:44:23   Mean negative scores: 0.22851024568080902
+11:44:23   BPR loss: 0.19507169723510742
+11:44:27   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:27   Mean positive scores: 5.8218207359313965
+11:44:27   Mean negative scores: -0.010311797261238098
+11:44:27   BPR loss: 0.09652315825223923
+11:44:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:32   Mean positive scores: 5.859536170959473
+11:44:32   Mean negative scores: 0.23897534608840942
+11:44:32   BPR loss: 0.16605204343795776
+11:44:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:36   Mean positive scores: 6.565874099731445
+11:44:36   Mean negative scores: 0.3262379765510559
+11:44:36   BPR loss: 0.12990418076515198
+11:44:41   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:41   Mean positive scores: 6.010819435119629
+11:44:41   Mean negative scores: -0.27679556608200073
+11:44:41   BPR loss: 0.11338388919830322
+11:44:45   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:46   Mean positive scores: 5.936924934387207
+11:44:46   Mean negative scores: 0.8915860652923584
+11:44:46   BPR loss: 0.272553414106369
+11:44:50   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:50   Mean positive scores: 5.220689296722412
+11:44:50   Mean negative scores: 0.4566698670387268
+11:44:50   BPR loss: 0.14041325449943542
+11:44:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:55   Mean positive scores: 5.866150856018066
+11:44:55   Mean negative scores: 0.12448415905237198
+11:44:55   BPR loss: 0.0915837287902832
+11:44:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:44:59   Mean positive scores: 6.321910858154297
+11:44:59   Mean negative scores: 0.11456418037414551
+11:44:59   BPR loss: 0.1512991487979889
+11:45:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:45:04   Mean positive scores: 6.359683036804199
+11:45:04   Mean negative scores: 0.27488136291503906
+11:45:04   BPR loss: 0.07644600421190262
+11:45:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:45:09   Mean positive scores: 6.498490333557129
+11:45:09   Mean negative scores: -0.10734695941209793
+11:45:09   BPR loss: 0.08643880486488342
+11:45:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:45:10   Epoch 0 end
+11:45:10   ------------------------------
+11:45:10   average bpr: 0.179198
+11:45:10   Save checkpoint to model_epoch_1.pth
+Traceback (most recent call last):
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 521, in <module>
+    train_and_validate(cfg, model, train_data, valid_data, filtered_data=val_filtered_data, device=device, batch_per_epoch=cfg.train.batch_per_epoch, logger=logger)
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 245, in train_and_validate
+    torch.save(state, "model_epoch_%d.pth" % epoch)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/serialization.py", line 618, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/serialization.py", line 492, in _open_zipfile_writer
+    return container(name_or_buffer)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/serialization.py", line 463, in __init__
+    super().__init__(torch._C.PyTorchFileWriter(self.name))
+RuntimeError: File model_epoch_1.pth cannot be opened.
