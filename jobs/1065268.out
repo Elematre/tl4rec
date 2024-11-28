@@ -9,3 +9,6 @@ base                     /itet-stor/trachsele/net_scratch/conda
 ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
 jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
 
+[1;34mwandb[0m: 🚀 View run [33mrun-Yelp18-2024-11-25_11-57[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/68gwuhum[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241125_115740-68gwuhum/logs[0m
+Finished at: Mon Nov 25 14:51:36 CET 2024
