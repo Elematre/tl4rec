@@ -1,0 +1,70 @@
+output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
+
+dataset:
+  class: {{ dataset }}
+  root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
+
+#the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
+model_type: Lightgcn  # Options: Ultra, LightGCN
+
+model:
+  class: Ultra
+  relation_model:
+    class: RelNBFNet
+    input_dim: 8
+    hidden_dims: [8, 8]
+    message_func: distmult
+    aggregate_func: sum
+    short_cut: yes
+    layer_norm: yes
+  entity_model:
+    class: EntityNBFNet
+    input_dim: 32
+    hidden_dims: [32, 32, 32, 32, 32]
+    message_func: distmult
+    aggregate_func: sum
+    short_cut: yes
+    layer_norm: yes
+  simple_model:
+    class: SimpleNBFNet
+    input_dim: 40
+    hidden_dims: [40, 40, 40, 40]
+    message_func: distmult
+    aggregate_func: sum
+    short_cut: yes
+    layer_norm: yes
+    # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
+  embedding_user:
+    input_dim: 24
+    hidden_dims: [32, 32]
+  embedding_item:
+    input_dim: 18
+    hidden_dims: [32, 32]
+    
+
+
+task:
+  name: TransductiveInference
+  num_negative: 1
+  strict_negative: yes
+  adversarial_temperature: 0
+  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
+  # note if one changes the k from ndcg this should also be adjusted in the code
+
+optimizer:
+  class: AdamW
+  lr:  0.005
+
+train:
+  gpus: [{{ gpus }}]
+  batch_size: 64
+  num_epoch: {{ epochs }}
+  log_interval: 100
+  batch_per_epoch: {{ bpe }}
+  loss: bpr # Options: Bpr, bce
+  target_metric: ndcg@20
+  wandb: no
+  gradient_clip: no
+  init_linear_weights: no
+
+checkpoint: {{ ckpt }}
