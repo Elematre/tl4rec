@@ -5,6 +5,8 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
+model_type: LightGCN  # Options: Ultra, LightGCN
+
 model:
   class: Ultra
   relation_model:
@@ -46,18 +48,23 @@ task:
   num_negative: 1
   strict_negative: yes
   adversarial_temperature: 0
-  metric: [mr, mrr, hits@1, hits@3, hits@10]
+  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
+  # note if one changes the k from ndcg this should also be adjusted in the code
 
 optimizer:
   class: AdamW
   lr:  0.005
 
 train:
-  gpus: [{{ gpus }}]
+  gpus: {{ gpus }}
   batch_size: 64
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
-  loss: bce
+  loss: bpr #options bpr, bce 
+  target_metric: ndcg@20
+  wandb: yes
+  gradient_clip: no
+  init_linear_weights: no
 
 checkpoint: {{ ckpt }}

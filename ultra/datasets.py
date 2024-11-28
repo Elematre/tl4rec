@@ -3,6 +3,8 @@ import csv
 import shutil
 import torch
 import requests
+import pandas as pd
+import json
 from torch_geometric.utils import to_undirected
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
@@ -167,24 +169,109 @@ class Yelp18(InMemoryDataset):
                 user_map[original_id] = int(remap_id)
     
         # Read item mappings
+        num_users = len(user_map)
         item_path = os.path.join(self.raw_dir, "item_list.txt")
         with open(item_path, "r") as f:
             next(f)  # Skip the header line
             for line in f:
                 original_id, remap_id = line.strip().split()
-                item_map[original_id] = int(remap_id)
+                item_map[original_id] = int(remap_id) + num_users
     
         return user_map, item_map
-
-
-
     
+    def load_user_features(self, user_json_path, user_map):
+        """Parse and preprocess user features with correct data types for all attributes."""
+        user_features = {}
+        with open(user_json_path, "r") as f:
+            for line in f:
+                user = json.loads(line)
+                if user["user_id"] in user_map:
+                    user_features[user_map[user["user_id"]]] = {
+                        "review_count": int(user["review_count"]),              
+                        "average_stars": float(user["average_stars"]),          
+                        "yelping_since": str(user["yelping_since"]),           
+                        "friends": len(user["friends"]),       # for now I only take #friends. Could include friend edges in the graph but not as target edges                
+                        "useful": int(user["useful"]),                         
+                        "funny": int(user["funny"]),                          
+                        "cool": int(user["cool"]),                            
+                        "fans": int(user["fans"]),                          
+                        "elite": len(user["elite"]),                           
+                        "compliment_hot": int(user["compliment_hot"]),         
+                        "compliment_more": int(user["compliment_more"]),       
+                        "compliment_profile": int(user["compliment_profile"]), 
+                        "compliment_cute": int(user["compliment_cute"]),       
+                        "compliment_list": int(user["compliment_list"]),       
+                        "compliment_note": int(user["compliment_note"]),        
+                        "compliment_plain": int(user["compliment_plain"]),      
+                        "compliment_cool": int(user["compliment_cool"]),       
+                        "compliment_funny": int(user["compliment_funny"]),     
+                        "compliment_writer": int(user["compliment_writer"]),    
+                        "compliment_photos": int(user["compliment_photos"]),    
+                    }
+        df = pd.DataFrame.from_dict(user_features, orient="index")
+        # Ensure IDs are part of the DataFrame index
+        df.index.name = "id"
+        return df
+
+    def flatten_attributes(self, attributes):
+        """Flatten nested business attributes for simpler handling."""
+        flattened = {}
+        for key, value in attributes.items():
+            if isinstance(value, dict):  # Handle nested dictionaries
+                for sub_key, sub_value in value.items():
+                    flattened[f"{key}_{sub_key}"] = sub_value
+            else:
+                flattened[key] = value
+        return flattened
+    
+    def load_item_features(self, item_json_path, item_map):
+        """Parse and preprocess item features with correct data types."""
+        item_features = {}
+        with open(item_json_path, "r") as f:
+            for line in f:
+                business = json.loads(line)
+                if business["business_id"] in item_map:
+                    # Extract and clean attributes
+                    attributes = business.get("attributes", {})
+                    attributes_cleaned = self.flatten_attributes(attributes)
+    
+                    # Process categories
+                    categories = business.get("categories", [])
+                    if isinstance(categories, str):
+                        categories = [cat.strip() for cat in categories.split(",")]
+    
+                    # Add to item features
+                    item_features[item_map[business["business_id"]]] = {
+                        "name": str(business["name"]),                        # string
+                        "address": str(business["address"]),                  # string
+                        "city": str(business["city"]),                        # string
+                        "state": str(business["state"]),                      # string
+                        "postal_code": str(business["postal_code"]),          # string
+                        "latitude": float(business["latitude"]),              # float
+                        "longitude": float(business["longitude"]),            # float
+                        "stars": float(business["stars"]),                    # float
+                        "review_count": int(business["review_count"]),        # integer
+                        "is_open": int(business["is_open"]),                  # integer
+                        "categories": categories,                             # list of strings
+                        "attributes": attributes_cleaned,                     # flattened attributes
+                        "hours": business.get("hours", {}),                   # dictionary of hours
+                    }
+        df = pd.DataFrame.from_dict(item_features, orient="index")
+        # Ensure IDs are part of the DataFrame index
+        df.index.name = "id"
+        return df
+
 
     def process(self):
         # Load mappings please note that item_map doesnt map to the offset (+ num_numser)
         user_map, item_map = self.load_mappings()
+        user_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_user.json")
+        user_features_df = self.load_user_features(user_features_path, user_map)
+        item_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_business.json")
+        item_features_df = self.load_item_features(item_features_path, item_map)
         num_users = len(user_map)
         num_items = len(item_map)
+
 
         def parse_edges(file_path):
             """Parse edges from file into a list of tuples."""

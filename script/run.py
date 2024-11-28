@@ -24,10 +24,8 @@ from ultra.models import Ultra,My_LightGCN
 
 separator = ">" * 30
 line = "-" * 30
-wandb_on = False
+
 light_gcn = True
-gradient_clip = False
-init_linear_weights = False
 
 def train_and_validate_old_cel(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
@@ -152,7 +150,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
     world_size = util.get_world_size()
     rank = util.get_rank()
-    
+    wandb_on = cfg.train["wandb"]
 
     train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
@@ -221,7 +219,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
                 loss.backward()
                 # Apply gradient clipping
-                if gradient_clip:
+                if cfg.train["gradient_clip"]:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
@@ -274,7 +272,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         if wandb_on:
             for metric, score in result_dict.items():
                 wandb.log({f"training/performance/{metric}": score})
-        result = result_dict["ndcg@k"]
+
+        target_metric = cfg.train["target_metric"]
+        result = result_dict[target_metric]
         #scheduler.step()
         #scheduler.step(result) 
         if result > best_result:
@@ -293,6 +293,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
+    wandb_on = cfg.train["wandb"]
         
     test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
@@ -302,6 +303,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     rankings = []
     num_negatives = []
     ndcgs = []
+    tail_ndcgs = []
     k = 20 # could be optimized
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
     for batch in test_loader:
@@ -331,12 +333,14 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
 
         t_pred[t_mask_inv] = float('-inf')
         h_pred[h_mask_inv] = float('-inf')
-        #compute t_ndcg 
+        
+        #compute ndcg scores 
         t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
         h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
-        ndcgs.append(torch.cat([t_ndcg, h_ndcg], dim=0))
+        ndcgs += [t_ndcg, h_ndcg]
+        tail_ndcgs +=  [t_ndcg]
 
-        # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter ffor now
+        # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter for now
         t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
         h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
         num_t_negative = t_mask.sum(dim=-1)
@@ -348,18 +352,18 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         tail_rankings += [t_ranking]
         num_tail_negs += [num_t_negative]
 
-    # the 3 code section below mainly ensure correct behaviour in a multi-core environment
+    # the 3 code section below mainly ensure correct behaviour in a multi-core environment 
+    # ranking is in num_workers
     ranking = torch.cat(rankings)
     num_negative = torch.cat(num_negatives)
     all_size = torch.zeros(world_size, dtype=torch.long, device=device)
     all_size[rank] = len(ranking)
-    
     ndcg_scores = torch.cat(ndcgs)
-    if world_size > 1:
-        dist.all_reduce(ndcg_scores, op=dist.ReduceOp.SUM)
+    
         
     # ugly repetitive code for tail-only ranks processing
     tail_ranking = torch.cat(tail_rankings)
+    tail_ndcgs_scores= torch.cat(tail_ndcgs)
     num_tail_neg = torch.cat(num_tail_negs)
     all_size_t = torch.zeros(world_size, dtype=torch.long, device=device)
     all_size_t[rank] = len(tail_ranking)
@@ -374,17 +378,29 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     all_num_negative = torch.zeros(all_size.sum(), dtype=torch.long, device=device)
     all_num_negative[cum_size[rank] - all_size[rank]: cum_size[rank]] = num_negative
 
+    # obtaining all ndcg
+    all_ndcgs = torch.zeros(all_size.sum(), dtype=torch.float, device=device)
+    all_ndcgs[cum_size[rank] - all_size[rank]: cum_size[rank]] = ndcg_scores
+
     # the same for tails-only ranks
     cum_size_t = all_size_t.cumsum(0)
     all_ranking_t = torch.zeros(all_size_t.sum(), dtype=torch.long, device=device)
     all_ranking_t[cum_size_t[rank] - all_size_t[rank]: cum_size_t[rank]] = tail_ranking
     all_num_negative_t = torch.zeros(all_size_t.sum(), dtype=torch.long, device=device)
     all_num_negative_t[cum_size_t[rank] - all_size_t[rank]: cum_size_t[rank]] = num_tail_neg
+
+    # the same for tail-only ncdgs
+    all_ndcgs_t = torch.zeros(all_size_t.sum(), dtype=torch.float, device=device)
+    all_ndcgs_t[cum_size_t[rank] - all_size_t[rank]: cum_size_t[rank]] = tail_ndcgs_scores
+    
     if world_size > 1:
         dist.all_reduce(all_ranking, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_num_negative, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_ranking_t, op=dist.ReduceOp.SUM)
         dist.all_reduce(all_num_negative_t, op=dist.ReduceOp.SUM)
+        dist.all_reduce(all_ndcgs, op=dist.ReduceOp.SUM)
+        dist.all_reduce(all_ndcgs_t, op=dist.ReduceOp.SUM)
+        
     # print (all_ranking.size())
     # i thinkg all_ranking = (test_size,2) yes but its (test_size*2)
     metrics = {}
@@ -403,11 +419,14 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                 _ranking = all_ranking_t
                 _num_neg = all_num_negative_t
                 _metric_name = metric
+                _ndcgs = all_ndcgs_t
             
             if _metric_name == "mr":
                 score = _ranking.float().mean()
             elif _metric_name == "mrr":
                 score = (1 / _ranking.float()).mean()
+            elif _metric_name == "ndcg@20":
+                 score = _ndcgs.mean().item()
             elif _metric_name.startswith("hits@"):
                 values = _metric_name[5:].split("_")
                 threshold = int(values[0])
@@ -426,11 +445,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
-            
-        # Average NDCG across all samples
-        final_ndcg = ndcg_scores.mean().item()
-        logger.warning(f"NDCG@{k}: {final_ndcg}")
-        metrics["ndcg@k"] = final_ndcg
+    
     mrr = (1 / all_ranking.float()).mean()
 
     return mrr if not return_metrics else metrics
@@ -454,6 +469,7 @@ if __name__ == "__main__":
     dataset_name = cfg.dataset["class"]
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     run_name = f"run-{dataset_name}-{current_time}"
+    wandb_on = cfg.train["wandb"]
     if wandb_on:
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
@@ -469,17 +485,19 @@ if __name__ == "__main__":
     #print(f"Number of nodes: {train_data.num_nodes}")
     # entity_model needs to know the dimensions of the relation model
     
-    rel_model_cfg= cfg.model.relation_model
-    entity_model_cfg= cfg.model.entity_model
-    # assuming the entity model has the same dimensions in every layer
-    entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
     
-    model = Ultra(
-        simple_model_cfg= cfg.model.simple_model,
-        embedding_user_cfg = cfg.model.embedding_user,
-        embedding_item_cfg = cfg.model.embedding_item
-    )
-    if light_gcn:
+    model_type = cfg['model_type']
+    if model_type == "Ultra":
+        rel_model_cfg= cfg.model.relation_model
+        entity_model_cfg= cfg.model.entity_model
+        # assuming the entity model has the same dimensions in every layer
+        entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
+        model = Ultra(
+            simple_model_cfg= cfg.model.simple_model,
+            embedding_user_cfg = cfg.model.embedding_user,
+            embedding_item_cfg = cfg.model.embedding_item
+        )
+    else:
         model = My_LightGCN(train_data.num_nodes)
     
     #model = Ultra(
@@ -497,7 +515,7 @@ if __name__ == "__main__":
     model = model.to(device)
     if wandb_on:
         wandb.watch(model, log= None)
-    if init_linear_weights:
+    if cfg.train["init_linear_weights"]:
         def weights_init(m):
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
