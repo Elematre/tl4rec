@@ -18,130 +18,13 @@ from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from ultra import tasks, util
+from ultra import tasks, util, test_functions
 from ultra.models import Ultra,My_LightGCN
 
 
 separator = ">" * 30
 line = "-" * 30
 
-light_gcn = True
-
-def train_and_validate_old_cel(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
-    if cfg.train.num_epoch == 0:
-        return
-
-    world_size = util.get_world_size()
-    rank = util.get_rank()
-    
-
-    train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
-    sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
-    train_loader = torch_data.DataLoader(train_triplets, cfg.train.batch_size, sampler=sampler)
-
-    batch_per_epoch = batch_per_epoch or len(train_loader)
-    
-    cls = cfg.optimizer.pop("class")
-    #optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
-    optimizer = torch.optim.RMSprop(model.parameters(), lr=1.0e-3, alpha=0.99)
-    #scheduler = StepLR(optimizer, step_size= 4, gamma=0.5) 
-    #scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3, verbose=False)
-    num_params = sum(p.numel() for p in model.parameters())
-    logger.warning(line)
-    logger.warning(f"Number of parameters: {num_params}")
-    if wandb_on: 
-        wandb.config.num_params = num_params
-
-    if world_size > 1:
-        parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
-    else:
-        parallel_model = model
-
-    step = math.ceil(cfg.train.num_epoch / 10)
-    best_result = float("-inf")
-    best_epoch = -1
-
-    batch_id = 0
-    for i in range(0, cfg.train.num_epoch, step):
-        parallel_model.train()
-        for epoch in range(i, min(cfg.train.num_epoch, i + step)):
-            if util.get_rank() == 0:
-                logger.warning(separator)
-                logger.warning("Epoch %d begin" % epoch)
-
-            losses = []
-            sampler.set_epoch(epoch)
-            for batch in islice(train_loader, batch_per_epoch):
-                batch = tasks.negative_sampling(train_data, batch, cfg.task.num_negative,
-                                                strict=cfg.task.strict_negative)
-                pred = parallel_model(train_data, batch)
-                target = torch.zeros_like(pred)
-                target[:, 0] = 1
-                
-                loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
-                neg_weight = torch.ones_like(pred)
-                if cfg.task.adversarial_temperature > 0:
-                    with torch.no_grad():
-                        neg_weight[:, 1:] = F.softmax(pred[:, 1:] / cfg.task.adversarial_temperature, dim=-1)
-                else:
-                    neg_weight[:, 1:] = 1 / cfg.task.num_negative
-                loss = (loss * neg_weight).sum(dim=-1) / neg_weight.sum(dim=-1)
-                loss = loss.mean()
-
-                loss.backward()
-                # Apply gradient clipping
-                if gradient_clip:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
-                optimizer.zero_grad()
-
-                if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
-                    logger.warning(separator)
-                    logger.warning("binary cross entropy: %g" % loss)
-                    if wandb_on:
-                        wandb.log({"training/loss": loss})
-                losses.append(loss.item())
-                batch_id += 1
-
-            if util.get_rank() == 0:
-                avg_loss = sum(losses) / len(losses)
-                logger.warning(separator)
-                logger.warning("Epoch %d end" % epoch)
-                logger.warning(line)
-                logger.warning("average binary cross entropy: %g" % avg_loss)
-                
-            
-
-        epoch = min(cfg.train.num_epoch, i + step)
-        if rank == 0:
-            logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
-            state = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict()
-            }
-            torch.save(state, "model_epoch_%d.pth" % epoch)
-        util.synchronize()
-
-        if rank == 0:
-            logger.warning(separator)
-            logger.warning("Evaluate on valid")
-        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
-        # Log each metric with the hierarchical key format "training/performance/{metric}"
-        if wandb_on:
-            for metric, score in result_dict.items():
-                wandb.log({f"training/performance/{metric}": score})
-        result = result_dict["mrr"]
-        #scheduler.step()
-        #scheduler.step(result) 
-        if result > best_result:
-            best_result = result
-            best_epoch = epoch
-
-    if rank == 0:
-        logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
-    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
-    model.load_state_dict(state["model"])
-    util.synchronize()
 
 
 def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
@@ -267,6 +150,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
+            
+            
         result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
@@ -312,27 +197,33 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         t_pred = model(test_data, t_batch)
         h_pred = model(test_data, h_batch)
         #t_pred= (bs, num_nodes)
+
         if filtered_data is None:
             t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
         else:
-            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch)
+            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch, context = 2)
         # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
         
         pos_h_index, pos_t_index, pos_r_index = batch.t()
         # pos_h_index = (bs)
 
         # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
-        t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch)
+        t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
         t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-   
+        # test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
+        
+        
+        
+        
         # mask out all scores of known edges. 
         t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
         # mask out pos_t/h_index 
-        t_mask_inv = t_mask_inv.logical_xor(t_relevance)
-        h_mask_inv = h_mask_inv.logical_xor(h_relevance)
+        t_mask_pred = t_mask_inv.logical_xor(t_relevance)
+        h_mask_pred = h_mask_inv.logical_xor(h_relevance)
+        # test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
 
-        t_pred[t_mask_inv] = float('-inf')
-        h_pred[h_mask_inv] = float('-inf')
+        t_pred[t_mask_pred] = float('-inf')
+        h_pred[h_mask_pred] = float('-inf')
         
         #compute ndcg scores 
         t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
@@ -556,6 +447,7 @@ if __name__ == "__main__":
     
     val_filtered_data = val_filtered_data.to(device)
     test_filtered_data = test_filtered_data.to(device)
+
     
     train_and_validate(cfg, model, train_data, valid_data, filtered_data=val_filtered_data, device=device, batch_per_epoch=cfg.train.batch_per_epoch, logger=logger)
     if util.get_rank() == 0:
