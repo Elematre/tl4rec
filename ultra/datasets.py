@@ -268,7 +268,9 @@ class Yelp18(InMemoryDataset):
         meta_info = preprocess_data.get_meta_info()
         meta_info["numerical_cols"] = ["latitude", "longitude", "stars", "review_count", "is_open"]
         meta_info["categorical_cols"] = ["state", "postal_code"]
-    
+        meta_info["str_cols"] = ["name", "city", "address"]
+        meta_info["ls_of_cat_string"] = ["categories"]
+        #meta_info["drop_cols"] = ["name", "city", "address"]
         return df, meta_info
 
 
