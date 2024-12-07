@@ -57,7 +57,7 @@ optimizer:
 
 train:
   gpus: [{{ gpus }}]
-  batch_size: 64
+  batch_size: 1024
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
@@ -66,5 +66,7 @@ train:
   wandb: no
   gradient_clip: no
   init_linear_weights: no
+  num_evals: 10
+  test_batch_size: 64
 
 checkpoint: {{ ckpt }}

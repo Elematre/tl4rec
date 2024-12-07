@@ -5,61 +5,22 @@ import torch
 import requests
 import pandas as pd
 import json
+import difflib
 from torch_geometric.utils import to_undirected
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR, MovieLens100K
 from collections import defaultdict
 from ultra.tasks import build_relation_graph
+from ultra import preprocess_data, test_functions
 import matplotlib.pyplot as plt
 
+import json
+import difflib
+import pandas as pd
+import json
+import difflib
 
-def stratified_split(edge_index, split_ratios, filter_by="item"):
-    """
-    Perform a stratified split based on the frequency distribution of items or users.
-
-    Args:
-        edge_index (torch.Tensor): Edge index tensor of shape [2, num_edges].
-        split_ratios (list of float): Ratios for splitting (e.g., [0.9, 0.1]).
-        filter_by (str): 'item' or 'user' to stratify by column 1 or column 0, respectively.
-
-    Returns:
-        list of torch.Tensor: Edge indices for each split.
-    """
-    split_col = 1 if filter_by == "item" else 0
-    value_counts = defaultdict(list)
-
-    # Group indices by their corresponding values (items or users)
-    for i in range(edge_index.size(1)):
-        value_counts[edge_index[split_col, i].item()].append(i)
-
-    # Shuffle and convert to tensors
-    for key in value_counts:
-        value_counts[key] = torch.tensor(value_counts[key])
-        perm = torch.randperm(value_counts[key].size(0))  # Shuffle within each group
-        value_counts[key] = value_counts[key][perm]
-
-    # Create split lists dynamically based on split_ratios
-    num_splits = len(split_ratios)
-    splits = [[] for _ in range(num_splits)]
-    thresholds = [sum(split_ratios[:i + 1]) for i in range(num_splits)]
-
-    # Distribute indices across splits
-    for indices in value_counts.values():
-        group_size = indices.size(0)
-        cumulative = 0
-        for i, threshold in enumerate(thresholds):
-            split_size = int(threshold * group_size) - cumulative
-            splits[i].append(indices[cumulative:cumulative + split_size])
-            cumulative += split_size
-
-    # Concatenate and shuffle within each split
-    splits = [torch.cat(split) for split in splits if split]  # Avoid empty splits
-    splits = [split[torch.randperm(split.size(0))] for split in splits]
-
-    return splits
-
-
-
+    
 
 def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
     """Plots the distribution of items in the dataset splits."""
@@ -77,36 +38,7 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
     plt.grid(True)
     plt.show()
 
-def validate_graph(data, num_users, num_items):
-    """
-    Validate the structure of the graph.
-    Ensures:
-    - User node IDs are within range [0, num_users - 1].
-    - Item node IDs are within range [num_users, num_users + num_items - 1].
-    - num_users + num_items == num_nodes.
 
-    Args:
-        data (Data): PyG data object containing the graph.
-        num_users (int): Number of users.
-        num_items (int): Number of items.
-    """
-    num_nodes = num_users + num_items
-
-    # Validate num_nodes
-    assert data.num_nodes == num_nodes, (
-        f"Mismatch in num_nodes: {data.num_nodes} != {num_nodes} "
-        f"(num_users + num_items)."
-    )
-
-    # Validate edge index ranges
-    src, dst = data.target_edge_index
-    invalid_users = (src < 0) | (src >= num_users)
-    invalid_items = (dst < num_users) | (dst >= num_nodes)
-    assert not invalid_users.any(), "Some user node IDs are out of range."
-    assert not invalid_items.any(), "Some item node IDs are out of range."
-
-
-    print("Graph validation passed!")
 
 
 
@@ -175,46 +107,94 @@ class Yelp18(InMemoryDataset):
             next(f)  # Skip the header line
             for line in f:
                 original_id, remap_id = line.strip().split()
-                item_map[original_id] = int(remap_id) + num_users
+                item_map[original_id] = int(remap_id)
     
         return user_map, item_map
     
     def load_user_features(self, user_json_path, user_map):
-        """Parse and preprocess user features with correct data types for all attributes."""
-        user_features = {}
+        
+        """
+        Parse and preprocess user features with correct data types for all attributes.
+        Ensure every user has an entry in the DataFrame.
+        """
+        # Initialize the user features dictionary with NaN for unmatched users
+        default_user_features = {
+            "review_count": float("nan"),
+            "average_stars": float("nan"),
+            "yelping_since": float("nan"),
+            "friends": float("nan"),
+            "useful": float("nan"),
+            "funny": float("nan"),
+            "cool": float("nan"),
+            "fans": float("nan"),
+            "elite": float("nan"),
+            "compliment_hot": float("nan"),
+            "compliment_more": float("nan"),
+            "compliment_profile": float("nan"),
+            "compliment_cute": float("nan"),
+            "compliment_list": float("nan"),
+            "compliment_note": float("nan"),
+            "compliment_plain": float("nan"),
+            "compliment_cool": float("nan"),
+            "compliment_funny": float("nan"),
+            "compliment_writer": float("nan"),
+            "compliment_photos": float("nan"),
+        }
+        user_features = {remapped_id: default_user_features.copy() for remapped_id in range(len(user_map))}
+    
+        # Parse the JSON file
         with open(user_json_path, "r") as f:
             for line in f:
                 user = json.loads(line)
                 if user["user_id"] in user_map:
                     user_features[user_map[user["user_id"]]] = {
-                        "review_count": int(user["review_count"]),              
-                        "average_stars": float(user["average_stars"]),          
-                        "yelping_since": str(user["yelping_since"]),           
-                        "friends": len(user["friends"]),       # for now I only take #friends. Could include friend edges in the graph but not as target edges                
-                        "useful": int(user["useful"]),                         
-                        "funny": int(user["funny"]),                          
-                        "cool": int(user["cool"]),                            
-                        "fans": int(user["fans"]),                          
-                        "elite": len(user["elite"]),                           
-                        "compliment_hot": int(user["compliment_hot"]),         
-                        "compliment_more": int(user["compliment_more"]),       
-                        "compliment_profile": int(user["compliment_profile"]), 
-                        "compliment_cute": int(user["compliment_cute"]),       
-                        "compliment_list": int(user["compliment_list"]),       
-                        "compliment_note": int(user["compliment_note"]),        
-                        "compliment_plain": int(user["compliment_plain"]),      
-                        "compliment_cool": int(user["compliment_cool"]),       
-                        "compliment_funny": int(user["compliment_funny"]),     
-                        "compliment_writer": int(user["compliment_writer"]),    
-                        "compliment_photos": int(user["compliment_photos"]),    
+                        "review_count": int(user["review_count"]),
+                        "average_stars": float(user["average_stars"]),
+                        "yelping_since": str(user["yelping_since"]),
+                        "friends": len(user["friends"]),  # Number of friends
+                        "useful": int(user["useful"]),
+                        "funny": int(user["funny"]),
+                        "cool": int(user["cool"]),
+                        "fans": int(user["fans"]),
+                        "elite": len(user["elite"]),
+                        "compliment_hot": int(user["compliment_hot"]),
+                        "compliment_more": int(user["compliment_more"]),
+                        "compliment_profile": int(user["compliment_profile"]),
+                        "compliment_cute": int(user["compliment_cute"]),
+                        "compliment_list": int(user["compliment_list"]),
+                        "compliment_note": int(user["compliment_note"]),
+                        "compliment_plain": int(user["compliment_plain"]),
+                        "compliment_cool": int(user["compliment_cool"]),
+                        "compliment_funny": int(user["compliment_funny"]),
+                        "compliment_writer": int(user["compliment_writer"]),
+                        "compliment_photos": int(user["compliment_photos"]),
                     }
+    
+        # Convert to DataFrame
         df = pd.DataFrame.from_dict(user_features, orient="index")
-        # Ensure IDs are part of the DataFrame index
         df.index.name = "id"
-        return df
-
+    
+        # Sort DataFrame by ID
+        df.sort_index(inplace=True)
+    
+        # Define meta_info
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = [
+            "review_count", "average_stars", "friends", "useful", "funny", "cool", "fans", "elite",
+            "compliment_hot", "compliment_more", "compliment_profile", "compliment_cute", "compliment_list",
+            "compliment_note", "compliment_plain", "compliment_cool", "compliment_funny",
+            "compliment_writer", "compliment_photos"
+        ]
+        meta_info["date_cols"] = ["yelping_since"]
+    
+        return df, meta_info
+    
+        
+    
     def flatten_attributes(self, attributes):
         """Flatten nested business attributes for simpler handling."""
+        if attributes is None:
+            return attributes
         flattened = {}
         for key, value in attributes.items():
             if isinstance(value, dict):  # Handle nested dictionaries
@@ -223,10 +203,30 @@ class Yelp18(InMemoryDataset):
             else:
                 flattened[key] = value
         return flattened
-    
+        
     def load_item_features(self, item_json_path, item_map):
-        """Parse and preprocess item features with correct data types."""
-        item_features = {}
+        """
+        Parse and preprocess item features with correct data types.
+        Ensure every item has an entry in the DataFrame.
+        """
+        default_item_features = {
+            "name": None,
+            "address": None,
+            "city": None,
+            "state": None,
+            "postal_code": None,
+            "latitude": float("nan"),
+            "longitude": float("nan"),
+            "stars": float("nan"),
+            "review_count": float("nan"),
+            "is_open": float("nan"),
+            "categories": None,
+            "attributes": None,
+            "hours": None,
+        }
+        item_features = {remapped_id: default_item_features.copy() for remapped_id in range(len(item_map))}
+    
+        # Parse the JSON file
         with open(item_json_path, "r") as f:
             for line in f:
                 business = json.loads(line)
@@ -236,41 +236,70 @@ class Yelp18(InMemoryDataset):
                     attributes_cleaned = self.flatten_attributes(attributes)
     
                     # Process categories
-                    categories = business.get("categories", [])
+                    categories = business.get("categories", "")
                     if isinstance(categories, str):
                         categories = [cat.strip() for cat in categories.split(",")]
     
-                    # Add to item features
+                    # Add item features
                     item_features[item_map[business["business_id"]]] = {
-                        "name": str(business["name"]),                        # string
-                        "address": str(business["address"]),                  # string
-                        "city": str(business["city"]),                        # string
-                        "state": str(business["state"]),                      # string
-                        "postal_code": str(business["postal_code"]),          # string
-                        "latitude": float(business["latitude"]),              # float
-                        "longitude": float(business["longitude"]),            # float
-                        "stars": float(business["stars"]),                    # float
-                        "review_count": int(business["review_count"]),        # integer
-                        "is_open": int(business["is_open"]),                  # integer
-                        "categories": categories,                             # list of strings
-                        "attributes": attributes_cleaned,                     # flattened attributes
-                        "hours": business.get("hours", {}),                   # dictionary of hours
+                        "name": str(business["name"]),
+                        "address": str(business["address"]),
+                        "city": str(business["city"]),
+                        "state": str(business["state"]),
+                        "postal_code": str(business["postal_code"]),
+                        "latitude": float(business["latitude"]),
+                        "longitude": float(business["longitude"]),
+                        "stars": float(business["stars"]),
+                        "review_count": int(business["review_count"]),
+                        "is_open": int(business["is_open"]),
+                        "categories": categories,
+                        "attributes": attributes_cleaned,
+                        "hours": business.get("hours", {}),
                     }
+    
+        # Convert to DataFrame
         df = pd.DataFrame.from_dict(item_features, orient="index")
-        # Ensure IDs are part of the DataFrame index
         df.index.name = "id"
-        return df
+    
+        # Sort DataFrame by ID
+        df.sort_index(inplace=True)
+    
+        # Define meta_info
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["latitude", "longitude", "stars", "review_count", "is_open"]
+        meta_info["categorical_cols"] = ["state", "postal_code"]
+    
+        return df, meta_info
+
+
+
+    
+  
 
 
     def process(self):
         # Load mappings please note that item_map doesnt map to the offset (+ num_numser)
         user_map, item_map = self.load_mappings()
-        user_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_user.json")
-        user_features_df = self.load_user_features(user_features_path, user_map)
-        item_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_business.json")
-        item_features_df = self.load_item_features(item_features_path, item_map)
         num_users = len(user_map)
         num_items = len(item_map)
+
+        print(f"num_users: {num_users}")
+        print(f"num_items: {num_items}")
+        
+        # integrating user features
+        #user_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_user.json")
+        #user_features_df_tup = self.load_user_features(user_features_path, user_map)
+        #user_features_df = preprocess_data.process_df(user_features_df_tup)
+        #raise ValueError("asdf")
+        
+        #raw_user_ids = extract_user_ids_from_json(item_features_path)
+        #find_mismatched_ids(list(item_map.keys()), raw_user_ids, max_output=20)
+        #raise ValueError("asdf")
+        
+        item_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_business.json")
+        item_features_df_tup = self.load_item_features(item_features_path, item_map)
+        item_features_df = preprocess_data.process_df(item_features_df_tup)
+        
 
 
         def parse_edges(file_path):
@@ -299,7 +328,7 @@ class Yelp18(InMemoryDataset):
         test_edge_index[1] += num_users
 
         # Perform stratified split for validation
-        train_indices, valid_indices = stratified_split(train_edge_index, [0.9, 0.1], filter_by="item")[:2]
+        train_indices, valid_indices = preprocess_data.stratified_split(train_edge_index, [0.9, 0.1], filter_by="item")[:2]
         train_target_edges = train_edge_index[:, train_indices]
         valid_target_edges = train_edge_index[:, valid_indices]
 
@@ -348,9 +377,9 @@ class Yelp18(InMemoryDataset):
             valid_data = self.pre_transform(valid_data)
             test_data = self.pre_transform(test_data)
 
-        #validate_graph(train_data, num_users, num_items)
-        #validate_graph(valid_data, num_users, num_items)
-        #validate_graph(test_data, num_users, num_items)
+        #test_functions.validate_graph(train_data, num_users, num_items)
+        #test_functions.validate_graph(valid_data, num_users, num_items)
+        #test_functions.validate_graph(test_data, num_users, num_items)
 
         # Save processed data
         torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
@@ -587,7 +616,7 @@ def MovieLens100k(root):
 
     # Perform stratified splitting by items
     split_ratios = [0.8, 0.1, 0.1]  # 80% train, 10% validation, 10% test
-    train_idx, valid_idx, test_idx = stratified_split(edge_index, split_ratios, filter_by='item')
+    train_idx, valid_idx, test_idx = preprocess_data.stratified_split(edge_index, split_ratios, filter_by='item')
     #print(f"Train indices: {train_idx.size(0)}, Valid indices: {valid_idx.size(0)}, Test indices: {test_idx.size(0)}")
 
     # Debugging: Check overlap between splits

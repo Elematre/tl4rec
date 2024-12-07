@@ -56,8 +56,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
     else:
         parallel_model = model
-
-    step = math.ceil(cfg.train.num_epoch / 10)
+    num_evals = cfg.train["num_evals"]
+    step = math.ceil(cfg.train.num_epoch / num_evals)
     best_result = float("-inf")
     best_epoch = -1
 
@@ -182,8 +182,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         
     test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
     sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
-    test_loader = torch_data.DataLoader(test_triplets, cfg.train.batch_size, sampler=sampler)
-
+    test_loader = torch_data.DataLoader(test_triplets, cfg.train.test_batch_size, sampler=sampler)
     model.eval()
     rankings = []
     num_negatives = []

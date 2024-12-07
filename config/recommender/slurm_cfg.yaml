@@ -45,7 +45,7 @@ model:
 
 task:
   name: TransductiveInference
-  num_negative: 1
+  num_negative: 8
   strict_negative: yes
   adversarial_temperature: 0
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
@@ -57,7 +57,7 @@ optimizer:
 
 train:
   gpus: {{ gpus }}
-  batch_size: 64
+  batch_size: 1024
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
@@ -66,5 +66,7 @@ train:
   wandb: yes
   gradient_clip: no
   init_linear_weights: no
+  num_evals: 10
+  test_batch_size: 64
 
 checkpoint: {{ ckpt }}
