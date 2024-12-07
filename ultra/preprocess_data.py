@@ -10,8 +10,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler, FunctionTransformer, OneHotEncoder
-from scipy.sparse import issparse
+from sklearn.preprocessing import StandardScaler, FunctionTransformer, OneHotEncoder, MultiLabelBinarizer
+from scipy.sparse import issparse, hstack
+from sklearn.feature_extraction.text import HashingVectorizer
 
 # maybe add friends as edges
 # 
@@ -28,11 +29,14 @@ def print_missing(df,meta_info):
         Returns:
             dict: Counts of missing values for each column type.
         """
-        counts = {"categorical": {}, "numerical": {}, "date": {}}
+        counts = {"categorical": {}, "numerical": {}, "date": {}, "str_cols" : {}}
     
         # Count None/NaN for categorical columns
         for col in meta_info["categorical_cols"]:
             counts["categorical"][col] = df[col].isna().sum() + df[col].eq(None).sum()
+
+        for col in meta_info["str_cols"]:
+            counts["str_cols"][col] = df[col].isna().sum() + df[col].eq(None).sum()
     
         # Count NaN for numerical columns
         for col in meta_info["numerical_cols"]:
@@ -66,6 +70,83 @@ class Debug(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None, **fit_params):
         return self
+
+
+# Updated CategoriesTransformer
+class CategoriesTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.binarizer = MultiLabelBinarizer()
+
+    def _preprocess_categories(self, X):
+        processed = []
+        for entry in X:
+            if isinstance(entry, list):
+                processed.append([cat.strip().lower() for cat in entry if isinstance(cat, str)])
+            else:
+                processed.append([])  # Handle NaN or invalid entries
+        return processed
+
+    def fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            X = X.iloc[:, 0].tolist()
+        X_processed = self._preprocess_categories(X)
+        self.binarizer.fit(X_processed)
+        return self
+
+    def transform(self, X):
+        if isinstance(X, pd.DataFrame):
+            X = X.iloc[:, 0].tolist()
+        elif isinstance(X, np.ndarray):
+            X = X.ravel()
+        X_processed = self._preprocess_categories(X)
+        if not X_processed or all(len(entry) == 0 for entry in X_processed):
+            return np.zeros((len(X), 0))  # Empty matrix if no categories
+        return self.binarizer.transform(X_processed)
+
+
+
+
+
+
+class CustomHashingVectorizer(BaseEstimator, TransformerMixin):
+    """
+    A custom transformer to apply HashingVectorizer column-wise on a 2D array.
+    """
+    def __init__(self, n_features=32):
+        self.n_features = n_features
+
+    def fit(self, X, y=None):
+        return self  # No fitting needed for HashingVectorizer
+
+    def transform(self, X):
+        def hash_vectorizer_array(X, n_features=32):
+            """
+            Applies HashingVectorizer column-wise on a numpy.ndarray.
+            
+            Args:
+                X (numpy.ndarray): 2D array of shape (n_samples, n_columns) containing string data.
+                n_features (int): Number of features for the HashingVectorizer.
+        
+            Returns:
+                scipy.sparse.csr_matrix: Concatenated sparse matrix with transformed features.
+            """
+            if not isinstance(X, np.ndarray):
+                raise ValueError(f"Expected input of type numpy.ndarray, got {type(X)} instead.")
+            if X.ndim != 2:
+                raise ValueError(f"Expected a 2D array, got an array with shape {X.shape}.")
+            
+            hashing_vectorizer = HashingVectorizer(n_features=n_features, norm=None, alternate_sign=False)
+            
+            # Apply HashingVectorizer to each column and store results
+            sparse_matrices = []
+            for col_idx in range(X.shape[1]):
+                column_data = X[:, col_idx].astype(str)  # Ensure the column is treated as strings
+                sparse_matrix = hashing_vectorizer.fit_transform(column_data)
+                sparse_matrices.append(sparse_matrix)
+            
+            # Concatenate sparse matrices horizontally
+            return hstack(sparse_matrices)
+        return hash_vectorizer_array(X, n_features=self.n_features)
 
 
 class DateTransformer(BaseEstimator, TransformerMixin):
@@ -109,8 +190,13 @@ def process_df(df_tup):
     df_tup = (df, meta_info)
     """
     df = df_tup[0]
-    print(f"df.shape {df.shape}")
     meta_info = df_tup[1]
+    print(f"df.shape {df.shape}")
+    df = df.drop(columns=meta_info["drop_cols"], errors="ignore")
+    print(f"df.shape {df.shape}")
+    
+    
+    #print_missing(df,meta_info)
     
     
 
@@ -119,12 +205,14 @@ def process_df(df_tup):
     date_transformer = Pipeline(steps=[
         ("date_conversion", DateTransformer()),
         ("scaler", StandardScaler())  # Treat transformed dates as numerical features
+        #("debug", Debug())
     ])
 
     # numerical pipeline
     numerical_transformer = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="mean")),  
-        ("scaler", StandardScaler()),
+        ("scaler", StandardScaler())
+        #("debug", Debug())
     ])
     
     # categorical pipeline 
@@ -138,34 +226,55 @@ def process_df(df_tup):
             X = pd.DataFrame(X)  
             return X.map(lambda val: val.lower() if isinstance(val, str) else val).values
         else:
-            raise ValueError(f"Unexpected input type for lowercase_transform: {type(X)}")
-
-
-
-        
+            raise ValueError(f"Unexpected input type for lowercase_transform: {type(X)}")   
     categorical_transformer = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
         ("lowercase", FunctionTransformer(lowercase_transform, validate=False)),  # Normalize case
-        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore"))
+        #("debug", Debug())
     ])
 
+    # string pipeline
+    string_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+        ("custom_hashing", CustomHashingVectorizer(n_features=32))
+    ])
     
+    # ls_of_cats pipeline
+    ls_of_cats_transformer = Pipeline(steps=[
+        ("debug 1", Debug()),
+        ("categories", CategoriesTransformer()),
+        ("debug 2", Debug()),
+    ])
     
     # Combine into a ColumnTransformer
     preprocessor = ColumnTransformer(
     transformers=[
         ("num", numerical_transformer, meta_info["numerical_cols"]),
         ("date", date_transformer, meta_info["date_cols"]),
-        ("cat", categorical_transformer, meta_info["categorical_cols"])
+        ("cat", categorical_transformer, meta_info["categorical_cols"]),
+        ("str", string_transformer, meta_info["str_cols"]),
+        ("ls_of_cats", ls_of_cats_transformer, meta_info["ls_of_cat_string"]) 
     ]
 )
 
-    # Fit and transform your DataFrame
+
     processed_features = preprocessor.fit_transform(df)
     #print(processed_features)
     
+    
+    print(f"Processed features shape: {processed_features.shape}")
+
+    # Convert to a dense array if sparse
+    if hasattr(processed_features, "toarray"):
+        processed_features = processed_features.toarray()
+
+    # Convert to PyTorch tensor
+    feature_tensor = torch.tensor(processed_features, dtype=torch.float64)
+    print(f"Feature tensor shape: {feature_tensor.shape}")
+    
     raise ValueError("processing was sucessful")
-    return processed_features
+    return feature_tensor
 
 def get_meta_info():
     meta_info = {}
@@ -173,6 +282,8 @@ def get_meta_info():
     meta_info["date_cols"] = [] # expected in "%Y-%m-%d %H:%M:%S" but might also handle different formats #TODO
     meta_info["categorical_cols"] = [] # low cardinality strings
     meta_info["str_cols"] = [] # high cardinality strings with low semantic info eg. name
+    meta_info["drop_cols"] = [] # columns that should be dropped and not processed e.g name
+    meta_info["ls_of_cat_string"] = [] # columns that consist of lists of categorical strings. E.g mulitple categories per entry
     
     #meta_info ["list_of_cat_cols"] = []
     #meta_info ["binary_cols"] = []
