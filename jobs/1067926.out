@@ -1,0 +1,11 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.ws4B4oudfr
+Starting on: Wed Dec  4 12:10:50 CET 2024
+SLURM_JOB_ID: 1067926
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
