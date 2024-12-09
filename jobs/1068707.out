@@ -1,0 +1,13 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.EuxIthL4nu
+Starting on: Mon Dec  9 12:46:33 CET 2024
+SLURM_JOB_ID: 1068707
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+We are using Ultra
+Load rspmm extension. This may take a while...
