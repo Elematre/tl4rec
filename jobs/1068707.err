@@ -1,0 +1,171 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+12:46:43   Random seed: 1024
+12:46:43   Config file: config/recommender/slurm_cfg.yaml
+12:46:43   {'checkpoint': None,
+ 'dataset': {'class': 'Yelp18',
+             'root': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 6421},
+           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 20},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'model_type': 'Ultra',
+ 'optimizer': {'class': 'AdamW', 'lr': 0.005},
+ 'output_dir': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs',
+ 'task': {'adversarial_temperature': 0,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10', 'ndcg@20'],
+          'name': 'TransductiveInference',
+          'num_negative': 8,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 34282,
+           'batch_size': 32,
+           'gpus': [0],
+           'gradient_clip': False,
+           'init_linear_weights': False,
+           'log_interval': 100,
+           'loss': 'bpr',
+           'num_epoch': 15,
+           'num_evals': 10,
+           'target_metric': 'ndcg@20',
+           'test_batch_size': 8,
+           'wandb': True}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/model_outputs/logs/Ultra/Yelp18/2024-12-09-12-46-43/wandb/run-20241209_124643-970vpjpl
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-Yelp18-2024-12-09_12-46
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/970vpjpl
+12:46:45   Yelp18 dataset
+12:46:45   #train: 1097007, #valid: 140252, #test: 324147
+12:46:46   ------------------------------
+12:46:46   Number of parameters: 262289
+12:46:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:46:46   Epoch 0 begin
+12:46:49   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:46:49   Mean positive scores: -0.04674626141786575
+12:46:49   Mean negative scores: -0.039863523095846176
+12:46:49   BPR loss: 0.6967812180519104
+12:49:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:49:59   Mean positive scores: 10.414358139038086
+12:49:59   Mean negative scores: 8.778793334960938
+12:49:59   BPR loss: 0.35631027817726135
+12:53:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:53:11   Mean positive scores: 5.047492027282715
+12:53:11   Mean negative scores: 1.8064627647399902
+12:53:11   BPR loss: 0.24047592282295227
+12:56:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:56:24   Mean positive scores: 1.4419336318969727
+12:56:24   Mean negative scores: -3.653134346008301
+12:56:24   BPR loss: 0.044544100761413574
+12:59:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:59:38   Mean positive scores: 12.15401840209961
+12:59:38   Mean negative scores: 4.527528285980225
+12:59:38   BPR loss: 0.014917483553290367
+13:02:50   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:02:51   Mean positive scores: 9.226922988891602
+13:02:51   Mean negative scores: -2.506472587585449
+13:02:51   BPR loss: 0.10372839868068695
+13:06:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:06:05   Mean positive scores: 5.5441389083862305
+13:06:05   Mean negative scores: -3.6872034072875977
+13:06:05   BPR loss: 0.09327216446399689
+13:09:16   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:09:18   Mean positive scores: 14.862751960754395
+13:09:18   Mean negative scores: -1.7512331008911133
+13:09:18   BPR loss: 0.01819038763642311
+13:12:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:12:31   Mean positive scores: 7.712502479553223
+13:12:31   Mean negative scores: 1.0036487579345703
+13:12:31   BPR loss: 0.19680455327033997
+13:15:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:15:45   Mean positive scores: 23.95530891418457
+13:15:45   Mean negative scores: 10.1935396194458
+13:15:45   BPR loss: 0.009854469448328018
+13:18:56   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:18:58   Mean positive scores: 25.418283462524414
+13:18:58   Mean negative scores: 6.673975944519043
+13:18:58   BPR loss: 0.08558578789234161
+13:22:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:22:11   Mean positive scores: 37.32617950439453
+13:22:11   Mean negative scores: 25.314655303955078
+13:22:11   BPR loss: 0.11157292872667313
+13:25:23   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:25:25   Mean positive scores: 21.978050231933594
+13:25:25   Mean negative scores: 12.341127395629883
+13:25:25   BPR loss: 0.11350938677787781
+13:28:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:28:38   Mean positive scores: 29.840560913085938
+13:28:38   Mean negative scores: 19.634363174438477
+13:28:38   BPR loss: 0.06100371107459068
+13:31:49   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:31:51   Mean positive scores: 36.987178802490234
+13:31:51   Mean negative scores: 30.865266799926758
+13:31:51   BPR loss: 0.08031981438398361
+13:35:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:35:05   Mean positive scores: 33.14472961425781
+13:35:05   Mean negative scores: 15.576332092285156
+13:35:05   BPR loss: 0.0060095698572695255
+13:38:17   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:38:18   Mean positive scores: 38.6419792175293
+13:38:18   Mean negative scores: 27.126510620117188
+13:38:18   BPR loss: 0.10880497097969055
+13:41:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:41:32   Mean positive scores: 37.163909912109375
+13:41:32   Mean negative scores: 19.875865936279297
+13:41:32   BPR loss: 0.003020733827725053
+13:44:44   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:44:45   Mean positive scores: 45.85868835449219
+13:44:45   Mean negative scores: 30.58437728881836
+13:44:45   BPR loss: 0.03868930786848068
+13:47:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:47:59   Mean positive scores: 35.38329315185547
+13:47:59   Mean negative scores: 24.117450714111328
+13:47:59   BPR loss: 0.17835263907909393
+13:51:11   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:51:12   Mean positive scores: 14.242181777954102
+13:51:12   Mean negative scores: 3.2519593238830566
+13:51:12   BPR loss: 0.03160493075847626
+13:54:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:54:26   Mean positive scores: 29.78009796142578
+13:54:26   Mean negative scores: 14.579605102539062
+13:54:26   BPR loss: 0.05834799259901047
+13:57:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+13:57:39   Mean positive scores: 15.619166374206543
+13:57:39   Mean negative scores: 4.295913219451904
+13:57:39   BPR loss: 0.02603926695883274
+14:00:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+14:00:53   Mean positive scores: 27.454317092895508
+14:00:53   Mean negative scores: 12.888185501098633
+14:00:53   BPR loss: 0.13765046000480652
+14:04:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+14:04:06   Mean positive scores: 28.25538444519043
+14:04:06   Mean negative scores: 12.869344711303711
+14:04:06   BPR loss: 0.048217590898275375
+14:07:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+14:07:20   Mean positive scores: 30.591569900512695
+14:07:20   Mean negative scores: 16.848419189453125
+14:07:20   BPR loss: 0.03177044913172722

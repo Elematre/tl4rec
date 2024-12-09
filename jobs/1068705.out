@@ -1,0 +1,14 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.bh6qdZsBLd
+Starting on: Mon Dec  9 12:42:54 CET 2024
+SLURM_JOB_ID: 1068705
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+We are using Ultra
+[1;34mwandb[0m: 🚀 View run [33mrun-Yelp18-2024-12-09_12-43[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/iwy1jih4[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241209_124306-iwy1jih4/logs[0m
