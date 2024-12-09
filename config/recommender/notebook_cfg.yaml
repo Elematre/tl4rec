@@ -5,7 +5,7 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-model_type: Lightgcn  # Options: Ultra, LightGCN
+model_type: Ultra  # Options: Ultra, LightGCN
 
 model:
   class: Ultra
@@ -35,17 +35,17 @@ model:
     layer_norm: yes
     # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
   embedding_user:
-    input_dim: 24
+    input_dim: 20
     hidden_dims: [32, 32]
   embedding_item:
-    input_dim: 18
+    input_dim: 6421
     hidden_dims: [32, 32]
     
 
 
 task:
   name: TransductiveInference
-  num_negative: 1
+  num_negative: 8
   strict_negative: yes
   adversarial_temperature: 0
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
@@ -57,7 +57,7 @@ optimizer:
 
 train:
   gpus: [{{ gpus }}]
-  batch_size: 1024
+  batch_size: 32
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
@@ -67,6 +67,6 @@ train:
   gradient_clip: no
   init_linear_weights: no
   num_evals: 10
-  test_batch_size: 64
+  test_batch_size: 8
 
 checkpoint: {{ ckpt }}

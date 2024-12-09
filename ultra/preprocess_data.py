@@ -194,6 +194,10 @@ def process_df(df_tup):
     print(f"df.shape {df.shape}")
     df = df.drop(columns=meta_info["drop_cols"], errors="ignore")
     print(f"df.shape {df.shape}")
+
+    # DEBUG Extract indices of rows with all null values
+    null_row_indices = df.index[df.isnull().all(axis=1)].tolist()
+    print(f"Number of null rows: {len(null_row_indices)}")
     
     
     #print_missing(df,meta_info)
@@ -242,9 +246,8 @@ def process_df(df_tup):
     
     # ls_of_cats pipeline
     ls_of_cats_transformer = Pipeline(steps=[
-        ("debug 1", Debug()),
-        ("categories", CategoriesTransformer()),
-        ("debug 2", Debug()),
+        ("categories", CategoriesTransformer())
+        #("debug 2", Debug()),
     ])
     
     # Combine into a ColumnTransformer
@@ -260,20 +263,29 @@ def process_df(df_tup):
 
 
     processed_features = preprocessor.fit_transform(df)
-    #print(processed_features)
-    
-    
-    print(f"Processed features shape: {processed_features.shape}")
-
-    # Convert to a dense array if sparse
     if hasattr(processed_features, "toarray"):
         processed_features = processed_features.toarray()
 
+    # DEBUG check null rows
+    null_rows_after_preprocessing = processed_features[null_row_indices, :]
+    #for i, row in enumerate(null_rows_after_preprocessing[:5]):  # Print first 5 null rows
+        #print(f"Row {null_row_indices[i]} after preprocessing: {row}")
+    if not np.all(np.equal(processed_features[null_row_indices], null_rows_after_preprocessing)):
+        raise ValueError("Null row values have changed during preprocessing!")
+
     # Convert to PyTorch tensor
-    feature_tensor = torch.tensor(processed_features, dtype=torch.float64)
+    feature_tensor = torch.tensor(processed_features, dtype=torch.float32)
     print(f"Feature tensor shape: {feature_tensor.shape}")
+
+    # DEBUG: Validate no zero columns in the tensor
+    column_sums = feature_tensor.sum(dim=0)
+    zero_columns = (column_sums == 0).nonzero(as_tuple=True)[0]
+    if len(zero_columns) > 0:
+        raise ValueError(f"Zero-information columns detected at indices: {zero_columns.tolist()}")
+        
+    #raise ValueError("feature preprocessing sucessful")   
     
-    raise ValueError("processing was sucessful")
+    
     return feature_tensor
 
 def get_meta_info():

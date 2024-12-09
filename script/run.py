@@ -378,6 +378,7 @@ if __name__ == "__main__":
     
     model_type = cfg['model_type']
     if model_type == "Ultra":
+        print("We are using Ultra")
         rel_model_cfg= cfg.model.relation_model
         entity_model_cfg= cfg.model.entity_model
         # assuming the entity model has the same dimensions in every layer

@@ -268,9 +268,9 @@ class Yelp18(InMemoryDataset):
         meta_info = preprocess_data.get_meta_info()
         meta_info["numerical_cols"] = ["latitude", "longitude", "stars", "review_count", "is_open"]
         meta_info["categorical_cols"] = ["state", "postal_code"]
-        meta_info["str_cols"] = ["name", "city", "address"]
+        #meta_info["str_cols"] = ["name", "city", "address"]
         meta_info["ls_of_cat_string"] = ["categories"]
-        #meta_info["drop_cols"] = ["name", "city", "address"]
+        meta_info["drop_cols"] = ["name", "city", "address", "hours", "attributes"]
         return df, meta_info
 
 
@@ -289,18 +289,22 @@ class Yelp18(InMemoryDataset):
         print(f"num_items: {num_items}")
         
         # integrating user features
-        #user_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_user.json")
-        #user_features_df_tup = self.load_user_features(user_features_path, user_map)
-        #user_features_df = preprocess_data.process_df(user_features_df_tup)
-        #raise ValueError("asdf")
+        user_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_user.json")
+        user_features_df_tup = self.load_user_features(user_features_path, user_map)
+        user_features = preprocess_data.process_df(user_features_df_tup)
+
+        # integrating item features
+        item_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_business.json")
+        item_features_df_tup = self.load_item_features(item_features_path, item_map)
+        item_features = preprocess_data.process_df(item_features_df_tup)
         
+        #raise ValueError("feature preprocessing sucessful")   
+        # DEBUG
         #raw_user_ids = extract_user_ids_from_json(item_features_path)
         #find_mismatched_ids(list(item_map.keys()), raw_user_ids, max_output=20)
         #raise ValueError("asdf")
         
-        item_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_business.json")
-        item_features_df_tup = self.load_item_features(item_features_path, item_map)
-        item_features_df = preprocess_data.process_df(item_features_df_tup)
+        
         
 
 
@@ -373,6 +377,9 @@ class Yelp18(InMemoryDataset):
         for data in [train_data, valid_data, test_data]:
             data.num_users = num_users
             data.num_items = num_items
+            data.x_user = user_features
+            data.x_item = item_features
+
 
         if self.pre_transform is not None:
             train_data = self.pre_transform(train_data)
