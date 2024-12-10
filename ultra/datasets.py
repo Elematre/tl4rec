@@ -5,6 +5,7 @@ import torch
 import requests
 import pandas as pd
 import json
+import pickle
 import difflib
 from torch_geometric.utils import to_undirected
 from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zip
@@ -43,6 +44,210 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
 
 
 
+
+
+class AmazonDataset(InMemoryDataset):
+    """
+    Generic Amazon Dataset (Fashion, Men, Beauty, Games) for recommender systems.
+    Supports ID remapping, stratified splitting, and edge processing.
+    """
+    
+    def __init__(self, root, name, transform=None, pre_transform=None):
+        self.name = name
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_dir(self):
+        return os.path.join(self.root, self.name, "raw")
+
+    @property
+    def processed_dir(self):
+        return os.path.join(self.root, self.name, "processed")
+
+    @property
+    def raw_file_names(self):
+        return [f"{self.name}.txt"]
+
+    @property
+    def processed_file_names(self):
+        return "data.pt"
+
+    def process(self):
+        """
+        Processes the dataset to create train, validation, and test splits, 
+        along with edge_index tensors for user-item interactions.
+        """
+        raw_file_path = os.path.join(self.raw_dir, f"{self.name}.txt")
+        train_edges, valid_edges, test_edges, num_users, num_items = self.load_edges(raw_file_path)
+
+        # Adjust item IDs to prevent overlap with user IDs
+        train_edges[1] += num_users
+        valid_edges[1] += num_users
+        test_edges[1] += num_users
+
+        # Add reversed edges
+        reversed_train_edges = train_edges.flip(0)
+
+        # Combine edges and set edge types
+        train_edges_combined = torch.cat([train_edges, reversed_train_edges], dim=1)
+
+
+        train_edge_types = torch.cat(
+            [torch.zeros(train_edges.size(1), dtype=torch.int64), 
+             torch.ones(reversed_train_edges.size(1), dtype=torch.int64)], dim=0
+        )
+
+        test_edge_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
+        valid_edge_types = torch.zeros(valid_edges.size(1), dtype=torch.int64)
+        target_train_edges = train_edges
+        target_train_edge_types = torch.zeros(train_edges.size(1), dtype=torch.int64)
+
+        # Number of nodes and relations
+        num_nodes = num_users + num_items
+        num_relations = 2  # Normal and reversed edges
+
+        # Construct Data objects
+        train_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=target_train_edges, target_edge_type=target_train_edge_types,
+            num_relations=num_relations
+        )
+
+        valid_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=valid_edges, target_edge_type=valid_edge_types,
+            num_relations=num_relations
+        )
+
+        test_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=test_edges, target_edge_type=test_edge_types,
+            num_relations=num_relations
+        )
+
+        print (f"num_users: {num_users} ")
+        print (f"num_items: {num_items} ")
+        
+         # Load item features
+        item_features = self.load_item_features(num_items)
+
+        # Create edge features (context)
+        edge_features = self.create_edge_features(train_edges, num_users)
+
+        # Create generic user features
+        user_features = torch.ones((num_users, 1), dtype=torch.float32)
+
+        print (f"user_features.shape: {user_features.shape} ")
+        print (f"item_features.shape: {item_features.shape} ")
+        print (f"edge_features.shape: {edge_features.shape} ")
+        # Add metadata
+        for data in [train_data, valid_data, test_data]:
+            data.num_users = num_users
+            data.num_items = num_items
+            data.x_user = user_features
+            data.x_item = item_features
+            data.x_edges = edge_features
+
+        # Pre-transform if provided
+        if self.pre_transform is not None:
+            train_data = self.pre_transform(train_data)
+            valid_data = self.pre_transform(valid_data)
+            test_data = self.pre_transform(test_data)
+
+        # Save processed data
+        torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+        print("yeiy it worked")
+
+    def load_edges(self, file_path):
+        """
+        Load edges from the dataset file and perform splits into train, validation, and test sets.
+
+        Args:
+            file_path (str): Path to the dataset file.
+        
+        Returns:
+            Tuple[Tensor, Tensor, Tensor, int, int]: Train, validation, test edges, and user/item counts.
+        """
+        user_data = defaultdict(list)
+        num_users, num_items = 0, 0
+
+        # Read interactions from file
+        with open(file_path, "r") as f:
+            for line in f:
+                user, item = map(int, line.strip().split())
+                user, item = user - 1, item - 1  # Adjust IDs to start from 0
+                user_data[user].append(item)
+                num_users = max(num_users, user + 1)
+                num_items = max(num_items, item + 1)
+
+        # Create train, validation, and test splits
+        train_edges, valid_edges, test_edges = [], [], []
+        for user, items in user_data.items():
+            if len(items) < 3:
+                train_edges.extend([(user, item) for item in items])
+            else:
+                train_edges.extend([(user, item) for item in items[:-2]])
+                valid_edges.append((user, items[-2]))
+                test_edges.append((user, items[-1]))
+
+        # Convert to PyTorch tensors
+        train_edges = torch.tensor(train_edges, dtype=torch.int64).t()
+        valid_edges = torch.tensor(valid_edges, dtype=torch.int64).t()
+        test_edges = torch.tensor(test_edges, dtype=torch.int64).t()
+
+        return train_edges, valid_edges, test_edges, num_users, num_items
+        
+    def load_data(self,filename):
+        try:
+            with open(filename, "rb") as f:
+                x= pickle.load(f)
+        except:
+            x = []
+        return x    
+    
+    def load_item_features(self, num_items):
+        """
+        Load item features from the corresponding file.
+        If no features are available, initialize zeros.
+        """
+        feature_file = os.path.join(self.raw_dir, f"{self.name}_feat_cat.dat")
+        try:
+            item_features = self.load_data(feature_file)  # Assuming load_data returns a NumPy array
+            item_features = torch.tensor(item_features, dtype=torch.float32)
+        except Exception as e:
+            print(f"Failed to load item features: {e}")
+            item_features = torch.zeros((num_items, 1), dtype=torch.float32)  # Default to 1D zeros
+        return item_features
+
+    def create_edge_features(self, edge_index, num_users):
+        """
+        Create edge features from the context dictionary.
+        """
+        ctxt_file = os.path.join(self.raw_dir, f"{self.name}_ctxt.dat")
+        cxtdict = self.load_data(ctxt_file)
+        edge_features = []
+        missing = 0
+        for src, tgt in edge_index.t().tolist():  # Iterate over edges
+            src, tgt = int(src), int(tgt)
+            src += 1
+            tgt = (tgt + 1) - num_users
+            if (src, tgt) in cxtdict:
+                edge_features.append(cxtdict[(src, tgt)])
+            else:
+                missing += 1
+                edge_features.append([0.0] * 6)  # Default zero vector for missing context
+
+        print (f"missing: {missing}")
+        return torch.tensor(edge_features, dtype=torch.float32)
+
+
+# Subclass for Amazon Beauty Dataset
+class Amazon_Beauty(AmazonDataset):
+    name = "amazon_beauty"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, self.name, transform, pre_transform)
 
 
 class Yelp18(InMemoryDataset):

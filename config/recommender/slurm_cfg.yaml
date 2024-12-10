@@ -5,7 +5,7 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-model_type: Ultra  # Options: Ultra, LightGCN
+model_type: LightGCN  # Options: Ultra, LightGCN
 
 model:
   class: Ultra
@@ -57,7 +57,7 @@ optimizer:
 
 train:
   gpus: {{ gpus }}
-  batch_size: 32
+  batch_size: 512
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}

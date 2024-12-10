@@ -35,17 +35,17 @@ model:
     layer_norm: yes
     # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
   embedding_user:
-    input_dim: 20
+    input_dim: 1
     hidden_dims: [32, 32]
   embedding_item:
-    input_dim: 6421
+    input_dim: 6507
     hidden_dims: [32, 32]
     
 
 
 task:
   name: TransductiveInference
-  num_negative: 8
+  num_negative: 1
   strict_negative: yes
   adversarial_temperature: 0
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
@@ -57,7 +57,7 @@ optimizer:
 
 train:
   gpus: [{{ gpus }}]
-  batch_size: 32
+  batch_size: 8
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
