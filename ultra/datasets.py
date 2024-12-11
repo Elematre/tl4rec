@@ -14,7 +14,7 @@ from collections import defaultdict
 from ultra.tasks import build_relation_graph
 from ultra import preprocess_data, test_functions
 import matplotlib.pyplot as plt
-
+from datetime import datetime
 import json
 import difflib
 import pandas as pd
@@ -43,6 +43,174 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
 
 
 
+class GowallaDataset(InMemoryDataset):
+    """
+    Gowalla Dataset for recommender systems.
+    Includes edge features from check-ins and friendship metadata.
+    """
+    urls = {
+        "train": "https://huggingface.co/datasets/reczoo/Gowalla_m1/resolve/main/train.txt",
+        "test": "https://huggingface.co/datasets/reczoo/Gowalla_m1/resolve/main/test.txt",
+        "edges": "https://snap.stanford.edu/data/loc-gowalla_edges.txt.gz",
+        "checkins": "https://snap.stanford.edu/data/loc-gowalla_totalCheckins.txt.gz"
+    }
+
+    name = "gowalla"
+
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_dir(self):
+        return os.path.join(self.root, self.name, "raw")
+
+    @property
+    def processed_dir(self):
+        return os.path.join(self.root, self.name, "processed")
+
+    @property
+    def raw_file_names(self):
+        return ["train.txt", "test.txt", "loc-gowalla_edges.txt", "loc-gowalla_totalCheckins.txt"]
+
+    @property
+    def processed_file_names(self):
+        return "data.pt"
+
+    def download(self):
+        # Download required files
+        for name, url in self.urls.items():
+            path = os.path.join(self.raw_dir, os.path.basename(url))
+            response = requests.get(url)
+            response.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(response.content)
+
+    def process(self):
+        # Parse edges
+        train_edges = self.parse_edges(os.path.join(self.raw_dir, "train.txt"))
+        test_edges = self.parse_edges(os.path.join(self.raw_dir, "test.txt"))
+
+        # Adjust item IDs to prevent overlap with user IDs
+        num_users = train_edges[0].max().item() + 1
+        train_edges[1] += num_users
+        test_edges[1] += num_users
+
+        # Stratified split for validation
+        train_indices, valid_indices = stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
+        train_target_edges = train_edges[:, train_indices]
+        valid_target_edges = train_edges[:, valid_indices]
+
+        # Combine train edges with reversed edges
+        train_edges_combined = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
+        train_edge_types = torch.cat(
+            [torch.zeros(train_target_edges.size(1), dtype=torch.int64),
+             torch.ones(train_target_edges.size(1), dtype=torch.int64)], dim=0
+        )
+
+        valid_edge_types = torch.zeros(valid_target_edges.size(1), dtype=torch.int64)
+        test_edge_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
+        train_target_edge_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
+
+        # Load friendship data
+        friends = self.load_friendship_edges(os.path.join(self.raw_dir, "loc-gowalla_edges.txt"))
+
+        # Load and process check-in metadata
+        checkins = self.load_checkins(os.path.join(self.raw_dir, "loc-gowalla_totalCheckins.txt"), num_users)
+        edge_features = self.map_checkins_to_edges(train_edges_combined, checkins)
+
+        # Number of nodes and relations
+        num_nodes = num_users + train_edges[1].max().item() + 1
+        num_relations = 2
+
+        # Construct Data objects
+        train_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types,
+            edge_attr=edge_features, num_relations=num_relations
+        )
+
+        valid_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
+            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types,
+            edge_attr=edge_features, num_relations=num_relations
+        )
+
+        test_data = Data(
+            edge_index=train_edges, edge_type=test_edge_types, num_nodes=num_nodes,
+            target_edge_index=test_edges, target_edge_type=test_edge_types,
+            edge_attr=edge_features, num_relations=num_relations
+        )
+
+        # Add metadata
+        for data in [train_data, valid_data, test_data]:
+            data.num_users = num_users
+            data.num_items = train_edges[1].max().item() - num_users + 1
+            data.friends = friends
+
+        # Pre-transform if provided
+        if self.pre_transform is not None:
+            train_data = self.pre_transform(train_data)
+            valid_data = self.pre_transform(valid_data)
+            test_data = self.pre_transform(test_data)
+
+        # Save processed data
+        torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+
+    @staticmethod
+    def parse_edges(file_path):
+        """
+        Parse edges from a file into a tensor.
+        """
+        edges = []
+        with open(file_path, "r") as f:
+            for line in f:
+                ids = list(map(int, line.strip().split()))
+                user, items = ids[0], ids[1:]
+                edges.extend([(user, item) for item in items])
+        return torch.tensor(edges, dtype=torch.int64).t()
+
+    @staticmethod
+    def load_friendship_edges(file_path):
+        """
+        Load friendship edges into a dictionary.
+        """
+        friends = defaultdict(list)
+        with open(file_path, "r") as f:
+            for line in f:
+                user, friend = map(int, line.strip().split())
+                friends[user].append(friend)
+        return friends
+
+    @staticmethod
+    def load_checkins(file_path, num_users):
+        """
+        Load check-in metadata into a DataFrame.
+        """
+        checkins = pd.read_csv(
+            file_path, sep="\t", header=None,
+            names=["user", "time", "latitude", "longitude", "location"]
+        )
+        checkins["user"] -= 1  # Remap user IDs to 0-indexed
+        checkins["time"] = pd.to_datetime(checkins["time"], format="%Y-%m-%dT%H:%M:%SZ")
+        checkins["time"] = checkins["time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        return checkins
+
+    @staticmethod
+    def map_checkins_to_edges(edge_index, checkins):
+        """
+        Map check-ins to edge features based on edge_index.
+        """
+        edge_features = []
+        checkin_dict = checkins.set_index(["user", "location"]).to_dict(orient="index")
+
+        for src, tgt in edge_index.t().tolist():
+            if (src, tgt - src) in checkin_dict:  # Match user-location pairs
+                edge_features.append(list(checkin_dict[(src, tgt - src)].values()))
+            else:
+                edge_features.append([0.0] * 4)  # Default for missing values
+
+        return torch.tensor(edge_features, dtype=torch.float32)
 
 
 
