@@ -9,3 +9,6 @@ base                     /itet-stor/trachsele/net_scratch/conda
 ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
 jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
 
+[1;34mwandb[0m: 🚀 View run [33mrun-Amazon_Beauty-2024-12-10_12-03[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/nsffmo9m[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241210_120351-nsffmo9m/logs[0m
+Finished at: Tue Dec 10 12:51:39 CET 2024

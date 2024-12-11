@@ -38,7 +38,7 @@ model:
     input_dim: 1
     hidden_dims: [32, 32]
   embedding_item:
-    input_dim: 6507
+    input_dim: 506
     hidden_dims: [32, 32]
     
 

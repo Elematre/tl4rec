@@ -29,7 +29,7 @@ for dataset in "${!DATASETS[@]}"; do
     if [ -f "${SOURCE_DIR}/${PREFIX}_imgs.dat" ]; then
         cp "${SOURCE_DIR}/${PREFIX}_imgs.dat" "${DEST_DIR}/${dataset}/raw/${dataset}_feat_cat.dat"
     elif [ -f "${SOURCE_DIR}/${PREFIX}_feat.dat" ]; then
-        cp "${SOURCE_DIR}/${PREFIX}_feat_cat.dat" "${DEST_DIR}/${dataset}/raw/${dataset}_feat_cat.dat"
+        cp "${SOURCE_DIR}/${PREFIX}_feat.dat" "${DEST_DIR}/${dataset}/raw/${dataset}_feat_cat.dat"
     fi
 
     # Handle context dictionary file
