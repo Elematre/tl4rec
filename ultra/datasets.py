@@ -242,9 +242,28 @@ class AmazonDataset(InMemoryDataset):
         return torch.tensor(edge_features, dtype=torch.float32)
 
 
-# Subclass for Amazon Beauty Dataset
+
 class Amazon_Beauty(AmazonDataset):
     name = "amazon_beauty"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, self.name, transform, pre_transform)
+         
+class Amazon_Fashion(AmazonDataset):
+    name = "amazon_fashion"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, self.name, transform, pre_transform)
+
+class Amazon_Men(AmazonDataset):
+    name = "amazon_men"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, self.name, transform, pre_transform)
+        
+# Subclass for Amazon Beauty Dataset
+class Amazon_Games(AmazonDataset):
+    name = "amazon_games"
     
     def __init__(self, root, transform=None, pre_transform=None):
         super().__init__(root, self.name, transform, pre_transform)
