@@ -296,7 +296,7 @@ def get_meta_info():
     meta_info["str_cols"] = [] # high cardinality strings with low semantic info eg. name
     meta_info["drop_cols"] = [] # columns that should be dropped and not processed e.g name
     meta_info["ls_of_cat_string"] = [] # columns that consist of lists of categorical strings. E.g mulitple categories per entry
-    
+    meta_info["dont_touch"] = [] # columns that shouldnt be altered
     #meta_info ["list_of_cat_cols"] = []
     #meta_info ["binary_cols"] = []
     return meta_info

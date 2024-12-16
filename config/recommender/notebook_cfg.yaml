@@ -5,7 +5,7 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-model_type: Ultra  # Options: Ultra, LightGCN
+model_type: LightGCN  # Options: Ultra, LightGCN
 
 model:
   class: Ultra
@@ -35,10 +35,8 @@ model:
     layer_norm: yes
     # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
   embedding_user:
-    input_dim: 1
     hidden_dims: [32, 32]
   embedding_item:
-    input_dim: 506
     hidden_dims: [32, 32]
     
 
