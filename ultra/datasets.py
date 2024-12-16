@@ -43,16 +43,18 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
 
 
 
-class GowallaDataset(InMemoryDataset):
+class Gowalla(InMemoryDataset):
     """
     Gowalla Dataset for recommender systems.
-    Includes edge features from check-ins and friendship metadata.
+    Includes edge features from check-ins and metadata.
     """
     urls = {
-        "train": "https://huggingface.co/datasets/reczoo/Gowalla_m1/resolve/main/train.txt",
-        "test": "https://huggingface.co/datasets/reczoo/Gowalla_m1/resolve/main/test.txt",
+        "train": "https://huggingface.co/datasets/reczoo/Gowalla_m1/raw/main/train.txt",
+        "test": "https://huggingface.co/datasets/reczoo/Gowalla_m1/raw/main/test.txt",
         "edges": "https://snap.stanford.edu/data/loc-gowalla_edges.txt.gz",
-        "checkins": "https://snap.stanford.edu/data/loc-gowalla_totalCheckins.txt.gz"
+        "checkins": "https://snap.stanford.edu/data/loc-gowalla_totalCheckins.txt.gz",
+        "user_list": "https://huggingface.co/datasets/reczoo/Gowalla_m1/raw/main/user_list.txt",
+        "item_list": "https://huggingface.co/datasets/reczoo/Gowalla_m1/raw/main/item_list.txt",
     }
 
     name = "gowalla"
@@ -97,7 +99,7 @@ class GowallaDataset(InMemoryDataset):
         test_edges[1] += num_users
 
         # Stratified split for validation
-        train_indices, valid_indices = stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
+        train_indices, valid_indices = preprocess_data.stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
         train_target_edges = train_edges[:, train_indices]
         valid_target_edges = train_edges[:, valid_indices]
 
@@ -113,11 +115,14 @@ class GowallaDataset(InMemoryDataset):
         train_target_edge_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
 
         # Load friendship data
-        friends = self.load_friendship_edges(os.path.join(self.raw_dir, "loc-gowalla_edges.txt"))
-
+        #friends = self.load_friendship_edges(os.path.join(self.raw_dir, "loc-gowalla_edges.txt"))
+        
+        # Load mappings
+        user_map = self.load_mapping(os.path.join(self.raw_dir, "user_list.txt"))
+        item_map = self.load_mapping(os.path.join(self.raw_dir, "item_list.txt"))
         # Load and process check-in metadata
-        checkins = self.load_checkins(os.path.join(self.raw_dir, "loc-gowalla_totalCheckins.txt"), num_users)
-        edge_features = self.map_checkins_to_edges(train_edges_combined, checkins)
+        checkins = self.load_checkins(os.path.join(self.raw_dir, "loc-gowalla_totalCheckins.txt"), user_map, item_map, num_users)
+        #edge_features = self.map_checkins_to_edges(train_edges_combined, checkins)
 
         # Number of nodes and relations
         num_nodes = num_users + train_edges[1].max().item() + 1
@@ -127,26 +132,26 @@ class GowallaDataset(InMemoryDataset):
         train_data = Data(
             edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
             target_edge_index=train_target_edges, target_edge_type=train_target_edge_types,
-            edge_attr=edge_features, num_relations=num_relations
+            num_relations=num_relations
         )
 
         valid_data = Data(
             edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
             target_edge_index=valid_target_edges, target_edge_type=valid_edge_types,
-            edge_attr=edge_features, num_relations=num_relations
+            num_relations=num_relations
         )
 
         test_data = Data(
-            edge_index=train_edges, edge_type=test_edge_types, num_nodes=num_nodes,
+            edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
             target_edge_index=test_edges, target_edge_type=test_edge_types,
-            edge_attr=edge_features, num_relations=num_relations
+            num_relations=num_relations
         )
 
         # Add metadata
         for data in [train_data, valid_data, test_data]:
             data.num_users = num_users
             data.num_items = train_edges[1].max().item() - num_users + 1
-            data.friends = friends
+           # data.friends = friends
 
         # Pre-transform if provided
         if self.pre_transform is not None:
@@ -170,28 +175,46 @@ class GowallaDataset(InMemoryDataset):
                 edges.extend([(user, item) for item in items])
         return torch.tensor(edges, dtype=torch.int64).t()
 
+   # @staticmethod
+   # def load_friendship_edges(file_path):
+    #    """
+     #   Load friendship edges into a dictionary.
+      #  """
+       # friends = defaultdict(list)
+        #with open(file_path, "r") as f:
+         #   for line in f:
+          #      user, friend = map(int, line.strip().split())
+           #     friends[user].append(friend)
+        #return friends
+    
     @staticmethod
-    def load_friendship_edges(file_path):
+    def load_mapping(file_path):
         """
-        Load friendship edges into a dictionary.
+        Load ID mappings from a file.
         """
-        friends = defaultdict(list)
+        mapping = {}
         with open(file_path, "r") as f:
+            next(f)  # Skip header
             for line in f:
-                user, friend = map(int, line.strip().split())
-                friends[user].append(friend)
-        return friends
-
+                original, remapped = map(int, line.strip().split())
+                mapping[original] = remapped
+        return mapping
+        
     @staticmethod
-    def load_checkins(file_path, num_users):
+    def load_checkins(file_path, user_map, item_map, num_users):
         """
-        Load check-in metadata into a DataFrame.
+        Load and remap check-in metadata into a DataFrame.
         """
         checkins = pd.read_csv(
             file_path, sep="\t", header=None,
             names=["user", "time", "latitude", "longitude", "location"]
         )
-        checkins["user"] -= 1  # Remap user IDs to 0-indexed
+        # Remap IDs
+        checkins["user"] = checkins["user"].map(user_map)
+        checkins["location"] = checkins["location"].map(item_map) + num_users
+        # Drop rows with unmapped IDs
+        checkins = checkins.dropna(subset=["user", "location"]).reset_index(drop=True)
+        # Format time
         checkins["time"] = pd.to_datetime(checkins["time"], format="%Y-%m-%dT%H:%M:%SZ")
         checkins["time"] = checkins["time"].dt.strftime("%Y-%m-%d %H:%M:%S")
         return checkins
@@ -203,13 +226,14 @@ class GowallaDataset(InMemoryDataset):
         """
         edge_features = []
         checkin_dict = checkins.set_index(["user", "location"]).to_dict(orient="index")
-
+        count = 0
         for src, tgt in edge_index.t().tolist():
             if (src, tgt - src) in checkin_dict:  # Match user-location pairs
                 edge_features.append(list(checkin_dict[(src, tgt - src)].values()))
             else:
+                count += 1
                 edge_features.append([0.0] * 4)  # Default for missing values
-
+        print (f"count missing : {count}")
         return torch.tensor(edge_features, dtype=torch.float32)
 
 
