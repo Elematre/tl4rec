@@ -3590,3 +3590,20 @@ wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/970vpjpl
 12:31:50   Mean positive scores: 15.466743469238281
 12:31:50   Mean negative scores: 1.4787178039550781
 12:31:50   BPR loss: 0.08885254710912704
+12:35:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:35:02   Mean positive scores: 15.927850723266602
+12:35:02   Mean negative scores: 3.2114923000335693
+12:35:02   BPR loss: 0.00013648095773532987
+12:38:12   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:38:14   Mean positive scores: 8.424087524414062
+12:38:14   Mean negative scores: -3.1626269817352295
+12:38:14   BPR loss: 0.0027818186208605766
+12:41:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:41:26   Mean positive scores: 8.303824424743652
+12:41:26   Mean negative scores: -1.6114429235458374
+12:41:26   BPR loss: 0.02846137247979641
+12:44:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:44:38   Mean positive scores: 12.95252799987793
+12:44:38   Mean negative scores: -1.1785956621170044
+12:44:38   BPR loss: 0.00010896081221289933
+slurmstepd: error: *** JOB 1068707 ON tikgpu04 CANCELLED AT 2024-12-11T12:46:34 DUE TO TIME LIMIT ***

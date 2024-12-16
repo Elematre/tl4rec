@@ -381,12 +381,18 @@ if __name__ == "__main__":
         print("We are using Ultra")
         rel_model_cfg= cfg.model.relation_model
         entity_model_cfg= cfg.model.entity_model
+        embedding_user_cfg = cfg.model.embedding_user
+        embedding_item_cfg = cfg.model.embedding_item
         # assuming the entity model has the same dimensions in every layer
         entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
+        # adding the input_dims of the mlp
+        print (f"train_data.x_user.size(1): {train_data.x_user.size(1)}")
+        embedding_user_cfg["input_dim"] = train_data.x_user.size(1)
+        embedding_item_cfg["input_dim"] = train_data.x_item.size(1)
         model = Ultra(
             simple_model_cfg= cfg.model.simple_model,
-            embedding_user_cfg = cfg.model.embedding_user,
-            embedding_item_cfg = cfg.model.embedding_item
+            embedding_user_cfg = embedding_user_cfg,
+            embedding_item_cfg = embedding_item_cfg
         )
     else:
         model = My_LightGCN(train_data.num_nodes)
