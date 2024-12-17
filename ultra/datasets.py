@@ -92,16 +92,48 @@ class Gowalla(InMemoryDataset):
         # Parse edges
         train_edges = self.parse_edges(os.path.join(self.raw_dir, "train.txt"))
         test_edges = self.parse_edges(os.path.join(self.raw_dir, "test.txt"))
+        print (f"size of train: train_edges: {train_edges.size(1)}")
+        print (f"size of test: test_edges: {test_edges.size(1)}")
 
         # Adjust item IDs to prevent overlap with user IDs
         num_users = train_edges[0].max().item() + 1
         train_edges[1] += num_users
         test_edges[1] += num_users
+        
+        # Load mappings
+        user_map = self.load_mapping(os.path.join(self.raw_dir, "user_list.txt"))
+        item_map = self.load_mapping(os.path.join(self.raw_dir, "item_list.txt"))
+        
+        # Load and process check-in metadata
+        checkin_dict = self.load_checkins(os.path.join(self.raw_dir, "loc-gowalla_totalCheckins.txt"), user_map, item_map, num_users)
+
+        # Allign checkins with edges
+        train_edges_features_df = self.map_checkins_to_edges(train_edges, checkin_dict)
+        test_edges_features_df = self.map_checkins_to_edges(test_edges, checkin_dict)
+        
+        print (f"size of train_edges_features_df: {train_edges_features_df.shape}")
+        print (f"size of test_edges_features_df: {test_edges_features_df.shape}")
+        
+        # debug: check that the edges allign
+        # test_functions.test_edge_feature_alignment(train_edges, train_edges_features_df)
+        # test_functions.test_edge_feature_alignment(test_edges, test_edges_features_df)
+        
+
+        # process the edge_feature df's by using preprocess_data.process_df with appropriate meta_info
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["latitude", "longitude"]
+        meta_info["date_cols"] = ["date"]
+        meta_info["drop_cols"] = ["item", "user"]
+        #train_edges_features=  preprocess_data.process_df((train_edges_features_df,meta_info))
+        test_edges_features=  preprocess_data.process_df((test_edges_features_df,meta_info))
+        raise ValueError("feature preprocessing sucessful")  
 
         # Stratified split for validation
         train_indices, valid_indices = preprocess_data.stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
         train_target_edges = train_edges[:, train_indices]
         valid_target_edges = train_edges[:, valid_indices]
+        train_target_edges_features = train_edges_features[train_indices ,:]
+        valid_target_edges_features = train_edges_features[valid_indices ,:]
 
         # Combine train edges with reversed edges
         train_edges_combined = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
@@ -109,6 +141,7 @@ class Gowalla(InMemoryDataset):
             [torch.zeros(train_target_edges.size(1), dtype=torch.int64),
              torch.ones(train_target_edges.size(1), dtype=torch.int64)], dim=0
         )
+        train_edges_combined_features = torch.cat([train_target_edges_features, train_target_edges_features], dim=0)
 
         valid_edge_types = torch.zeros(valid_target_edges.size(1), dtype=torch.int64)
         test_edge_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
@@ -117,48 +150,65 @@ class Gowalla(InMemoryDataset):
         # Load friendship data
         #friends = self.load_friendship_edges(os.path.join(self.raw_dir, "loc-gowalla_edges.txt"))
         
-        # Load mappings
-        user_map = self.load_mapping(os.path.join(self.raw_dir, "user_list.txt"))
-        item_map = self.load_mapping(os.path.join(self.raw_dir, "item_list.txt"))
-        # Load and process check-in metadata
-        checkins = self.load_checkins(os.path.join(self.raw_dir, "loc-gowalla_totalCheckins.txt"), user_map, item_map, num_users)
-        #edge_features = self.map_checkins_to_edges(train_edges_combined, checkins)
+        
 
         # Number of nodes and relations
         num_nodes = num_users + train_edges[1].max().item() + 1
         num_relations = 2
+        print (f"size of train_edges_combined: {train_edges_combined.size(1)}")
+        print (f"size of train_edges_combined_features: {train_edges_combined_features.size(0)}")
+        
+        print (f"size of train_target_edges: {train_target_edges.size(1)}")
+        print (f"size of train_target_edges_features: {train_target_edges_features.size(0)}")
+
+        print (f"size of valid_target_edges: {valid_target_edges.size(1)}")
+        print (f"size of valid_target_edges_features: {valid_target_edges_features.size(0)}")
+        
+        print (f"size of test_edges: {test_edges.size(1)}")
+        print (f"size of test_edges_features: {test_edges_features.size(0)}")
 
         # Construct Data objects
         train_data = Data(
-            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
-            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types,
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr = train_edges_combined_features,
+            num_nodes=num_nodes,
+            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types, target_edge_attr = train_target_edges_features,
             num_relations=num_relations
         )
 
         valid_data = Data(
-            edge_index=train_edges_combined, edge_type=train_edge_types, num_nodes=num_nodes,
-            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types,
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr = train_edges_combined_features,
+            num_nodes=num_nodes,
+            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types, target_edge_attr = valid_target_edges_features,
             num_relations=num_relations
         )
 
         test_data = Data(
-            edge_index=train_edges, edge_type=train_edge_types, num_nodes=num_nodes,
-            target_edge_index=test_edges, target_edge_type=test_edge_types,
+            edge_index=train_edges, edge_type=train_edge_types, edge_attr = train_edges_combined_features, 
+            num_nodes=num_nodes, 
+            target_edge_index=test_edges, target_edge_type=test_edge_types, target_edge_attr = test_edges_features,
             num_relations=num_relations
         )
-
+         
+        
         # Add metadata
+        # Create generic user/item features
+        user_features = torch.ones((num_users, 1), dtype=torch.float32)
+        item_features = torch.ones((num_items, 1), dtype=torch.float32)
+        
         for data in [train_data, valid_data, test_data]:
             data.num_users = num_users
             data.num_items = train_edges[1].max().item() - num_users + 1
+            data.x_user = user_features
+            data.x_item = item_features
            # data.friends = friends
-
+        
+        raise ValueError("feature preprocessing sucessful")  
         # Pre-transform if provided
         if self.pre_transform is not None:
             train_data = self.pre_transform(train_data)
             valid_data = self.pre_transform(valid_data)
             test_data = self.pre_transform(test_data)
-
+        
         # Save processed data
         torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
 
@@ -203,38 +253,80 @@ class Gowalla(InMemoryDataset):
     @staticmethod
     def load_checkins(file_path, user_map, item_map, num_users):
         """
-        Load and remap check-in metadata into a DataFrame.
+        Load and remap check-in metadata into a dictionary for quick lookup.
         """
         checkins = pd.read_csv(
             file_path, sep="\t", header=None,
-            names=["user", "time", "latitude", "longitude", "location"]
+            names=["user", "date", "latitude", "longitude", "item"]
         )
         # Remap IDs
         checkins["user"] = checkins["user"].map(user_map)
-        checkins["location"] = checkins["location"].map(item_map) + num_users
+        # dont know if this is necessary
+        checkins["item"] = checkins["item"].map(item_map) + num_users
         # Drop rows with unmapped IDs
-        checkins = checkins.dropna(subset=["user", "location"]).reset_index(drop=True)
-        # Format time
-        checkins["time"] = pd.to_datetime(checkins["time"], format="%Y-%m-%dT%H:%M:%SZ")
-        checkins["time"] = checkins["time"].dt.strftime("%Y-%m-%d %H:%M:%S")
-        return checkins
+        checkins = checkins.dropna(subset=["user", "item"]).reset_index(drop=True)
+        # Format date
+        checkins["date"] = pd.to_datetime(checkins["date"], format="%Y-%m-%dT%H:%M:%SZ")
+        checkins["date"] = checkins["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Deduplicate check-ins: Group by user and item, taking the first occurrence
+        checkins_grouped = checkins.groupby(["user", "item"]).first().reset_index()
+    
+        # Create a lookup dictionary for check-ins
+        checkin_dict = {
+            (row["user"], row["item"]): [row["date"], row["latitude"], row["longitude"], row["item"]]
+            for _, row in checkins_grouped.iterrows()
+        }
+        return checkin_dict
 
+    
     @staticmethod
-    def map_checkins_to_edges(edge_index, checkins):
+    def map_checkins_to_edges(edge_index, checkin_dict):
         """
-        Map check-ins to edge features based on edge_index.
+        Align check-in metadata with edges
+        
+        Args:
+            edge_index (Tensor): Edge index tensor of shape [2, num_edges].
+            checkins (DataFrame): Check-in metadata dictionary.
+    
+        Returns:
+            DataFrame: df aligned with edge_index.
+            
         """
+    
+        unmatched_count = 0  # Count unmatched edges
+        matched_count = 0    # Count matched edges
+        users  = []
+    
+        # Initialize lists for train and test features
         edge_features = []
-        checkin_dict = checkins.set_index(["user", "location"]).to_dict(orient="index")
-        count = 0
-        for src, tgt in edge_index.t().tolist():
-            if (src, tgt - src) in checkin_dict:  # Match user-location pairs
-                edge_features.append(list(checkin_dict[(src, tgt - src)].values()))
+    
+        # Align features for each edge
+        for edge in edge_index.t().tolist():
+            user, item = edge
+            users.append(user)
+            # Handle both directions
+            if (user, item) in checkin_dict:
+                edge_features.append(checkin_dict[(user, item)])
+                matched_count += 1
+            elif (item, user) in checkin_dict:
+                edge_features.append(checkin_dict[(item, user)])
+                matched_count += 1
             else:
-                count += 1
-                edge_features.append([0.0] * 4)  # Default for missing values
-        print (f"count missing : {count}")
-        return torch.tensor(edge_features, dtype=torch.float32)
+                edge_features.append([float('nan')] * 4)  # Fill with NaN for missing edges
+                unmatched_count += 1
+    
+        print(f"Matched edges: {matched_count}, Unmatched edges: {unmatched_count}")
+    
+        # Convert edge features to DataFrame
+        df = pd.DataFrame(
+            edge_features, columns=["date", "latitude", "longitude", "item"]
+        )
+        df["user"] = users
+    
+        return df
+    
+
 
 
 
