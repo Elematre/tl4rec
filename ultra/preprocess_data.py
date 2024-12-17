@@ -149,9 +149,10 @@ class CustomHashingVectorizer(BaseEstimator, TransformerMixin):
         return hash_vectorizer_array(X, n_features=self.n_features)
 
 
+
 class DateTransformer(BaseEstimator, TransformerMixin):
     """
-    A custom transformer for date columns that
+    A custom transformer for date columns to extract 'days_since_ref' and 'seconds_offset'.
     """
     def __init__(self, fill_value=None, reference_date=None, date_format="%Y-%m-%d %H:%M:%S"):
         self.fill_value = fill_value
@@ -161,7 +162,7 @@ class DateTransformer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         # Flatten 2D data into 1D Series
         if isinstance(X, pd.DataFrame):
-            X = X.iloc[:, 0]  
+            X = X.iloc[:, 0]
         X = pd.Series(X).squeeze()
 
         X_parsed = pd.to_datetime(X, format=self.date_format, errors="coerce")
@@ -179,9 +180,23 @@ class DateTransformer(BaseEstimator, TransformerMixin):
         if isinstance(X, pd.DataFrame):
             X = X.iloc[:, 0]
         X = pd.Series(X).squeeze()
+
+        # Parse dates and fill missing values
         X_parsed = pd.to_datetime(X, format=self.date_format, errors="coerce").fillna(self.fill_value)
-        X_numeric = (X_parsed - self.reference_date).dt.days
-        return X_numeric.values.reshape(-1, 1)
+
+        # Calculate days since reference
+        delta = X_parsed - self.reference_date
+        days_since_ref = delta.dt.days
+
+        # Calculate seconds offset
+        seconds_offset = delta.dt.seconds  # Seconds since midnight of the current day
+
+        # Return as DataFrame for pipeline compatibility
+        return pd.DataFrame({
+            "days_since_ref": days_since_ref,
+            "seconds_offset": seconds_offset
+        }).values
+
 
 
 def process_df(df_tup):
@@ -191,9 +206,13 @@ def process_df(df_tup):
     """
     df = df_tup[0]
     meta_info = df_tup[1]
-    print(f"df.shape {df.shape}")
+    print ("Hi we are in the process_df method.")
+    print(f"This is the shape of the original df {df.shape}")
+
+
+
     df = df.drop(columns=meta_info["drop_cols"], errors="ignore")
-    print(f"df.shape {df.shape}")
+    print(f"This is the shape after we dropped cols {df.shape}")
 
     # DEBUG Extract indices of rows with all null values
     null_row_indices = df.index[df.isnull().all(axis=1)].tolist()
@@ -265,7 +284,7 @@ def process_df(df_tup):
     processed_features = preprocessor.fit_transform(df)
     if hasattr(processed_features, "toarray"):
         processed_features = processed_features.toarray()
-
+        
     # DEBUG check null rows
     null_rows_after_preprocessing = processed_features[null_row_indices, :]
     #for i, row in enumerate(null_rows_after_preprocessing[:5]):  # Print first 5 null rows
@@ -276,7 +295,8 @@ def process_df(df_tup):
     # Convert to PyTorch tensor
     feature_tensor = torch.tensor(processed_features, dtype=torch.float32)
     print(f"Feature tensor shape: {feature_tensor.shape}")
-
+    print(f"first 10 entries: {feature_tensor[:10,:]}")
+    
     # DEBUG: Validate no zero columns in the tensor
     column_sums = feature_tensor.sum(dim=0)
     zero_columns = (column_sums == 0).nonzero(as_tuple=True)[0]
@@ -284,9 +304,11 @@ def process_df(df_tup):
         raise ValueError(f"Zero-information columns detected at indices: {zero_columns.tolist()}")
         
     #raise ValueError("feature preprocessing sucessful")   
-    
+    print ("process_df was sucessful")
     
     return feature_tensor
+
+
 
 def get_meta_info():
     meta_info = {}
