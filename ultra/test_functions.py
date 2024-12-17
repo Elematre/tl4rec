@@ -4,6 +4,27 @@ from torch_geometric.data import Data
 import torch
 import random
 
+
+
+def test_edge_feature_alignment(edge_index, df_features):
+    """
+    Test if the edge identifiers in the edge_index match the order in the feature DataFrame.
+
+    Args:
+        edge_index (Tensor): Edge index tensor of shape [2, num_edges].
+        df_features (DataFrame): DataFrame containing edge features aligned with edge_index.
+
+    Raises:
+        AssertionError: If the order of edge identifiers does not match the feature order.
+    """
+    for idx, edge in enumerate(edge_index.t().tolist()):
+        u, v = edge
+        # Check if the edge identifiers match
+        assert (df_features.iloc[idx]["user"] == u and df_features.iloc[idx]["item"] == v), \
+            f"Mismatch at index {idx}: Edge ({u}, {v}) does not match DataFrame row."
+    print("All edge identifiers match the feature DataFrame.")
+
+
 def extract_user_ids_from_json(user_json_path):
     """
     Extract all user IDs from the raw JSON file.
