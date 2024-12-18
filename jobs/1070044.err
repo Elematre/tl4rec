@@ -1,0 +1,169 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+10:22:29   Random seed: 1024
+10:22:29   Config file: config/recommender/slurm_cfg.yaml
+10:22:29   {'checkpoint': None,
+ 'dataset': {'class': 'Gowalla',
+             'root': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32]},
+           'embedding_user': {'hidden_dims': [32, 32]},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'model_type': 'Ultra',
+ 'optimizer': {'class': 'AdamW', 'lr': 0.005},
+ 'output_dir': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs',
+ 'task': {'adversarial_temperature': 0,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10', 'ndcg@20'],
+          'name': 'TransductiveInference',
+          'num_negative': 8,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 11133,
+           'batch_size': 32,
+           'gpus': [0],
+           'gradient_clip': False,
+           'init_linear_weights': False,
+           'log_interval': 100,
+           'loss': 'bce',
+           'num_epoch': 15,
+           'num_evals': 10,
+           'target_metric': 'ndcg@20',
+           'test_batch_size': 8,
+           'wandb': True}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/model_outputs/logs/Ultra/Gowalla/2024-12-18-10-22-29/wandb/run-20241218_102230-6fxshmx5
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-Gowalla-2024-12-18_10-22
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/6fxshmx5
+10:22:46   Gowalla dataset
+10:22:46   #train: 712504, #valid: 97624, #test: 217242
+10:22:46   ------------------------------
+10:22:46   Number of parameters: 56241
+10:22:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:22:46   Epoch 0 begin
+10:22:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:22:48   binary cross entropy: 0.743118
+10:25:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:25:10   binary cross entropy: 0.517127
+10:27:31   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:27:33   binary cross entropy: 0.549093
+10:29:54   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:29:56   binary cross entropy: 0.498053
+10:32:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:32:19   binary cross entropy: 0.569068
+10:34:41   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:34:42   binary cross entropy: 0.436532
+10:37:04   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:37:05   binary cross entropy: 0.320969
+10:39:27   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:39:29   binary cross entropy: 0.38263
+10:41:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:41:52   binary cross entropy: 0.428916
+10:44:14   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:44:15   binary cross entropy: 0.351287
+10:46:37   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:46:38   binary cross entropy: 0.352925
+10:49:00   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:49:02   binary cross entropy: 0.247
+10:51:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:51:25   binary cross entropy: 0.390175
+10:53:47   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:53:48   binary cross entropy: 0.363694
+10:56:10   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:56:12   binary cross entropy: 0.285086
+10:58:34   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:58:35   binary cross entropy: 0.286457
+11:00:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:00:58   binary cross entropy: 0.331106
+11:03:20   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:03:21   binary cross entropy: 0.210155
+11:05:43   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:05:45   binary cross entropy: 0.244284
+11:08:07   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:08:08   binary cross entropy: 0.267157
+11:10:30   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:10:31   binary cross entropy: 0.362681
+11:12:53   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:12:54   binary cross entropy: 0.207364
+11:15:16   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:15:18   binary cross entropy: 0.358995
+11:17:40   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:17:41   binary cross entropy: 0.272416
+11:20:03   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:20:04   binary cross entropy: 0.249848
+11:22:26   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:22:27   binary cross entropy: 0.34787
+11:24:49   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:24:51   binary cross entropy: 0.293853
+11:27:13   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:27:14   binary cross entropy: 0.352082
+11:29:36   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:29:37   binary cross entropy: 0.370449
+11:31:59   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:32:00   binary cross entropy: 0.306939
+11:34:22   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:34:24   binary cross entropy: 0.275994
+11:36:46   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:36:47   binary cross entropy: 0.276601
+11:39:09   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:39:10   binary cross entropy: 0.400641
+11:41:32   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:41:33   binary cross entropy: 0.262022
+11:43:55   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:43:57   binary cross entropy: 0.214872
+11:46:18   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:46:20   binary cross entropy: 0.31483
+11:48:42   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:48:43   binary cross entropy: 0.243676
+11:51:05   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:51:06   binary cross entropy: 0.284663
+11:53:28   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:53:30   binary cross entropy: 0.27804
+11:55:51   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:55:53   binary cross entropy: 0.299296
+11:58:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+11:58:16   binary cross entropy: 0.292225
+12:00:38   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:00:39   binary cross entropy: 0.224813
+12:03:01   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:03:03   binary cross entropy: 0.224606
+12:05:24   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:05:26   binary cross entropy: 0.207217
+12:07:48   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:07:49   binary cross entropy: 0.255649
+12:10:11   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:10:12   binary cross entropy: 0.142322
+12:12:34   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:12:35   binary cross entropy: 0.238697
+12:14:57   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:14:59   binary cross entropy: 0.267047
+12:17:21   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:17:22   binary cross entropy: 0.26184
+12:19:44   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:19:45   binary cross entropy: 0.230747
+12:22:07   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+12:22:09   binary cross entropy: 0.353803

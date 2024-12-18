@@ -1,7 +1,7 @@
 Running on node: tikgpu04
-In directory: /tmp/tmp.r5fuZFL57G
-Starting on: Wed Dec  4 12:10:08 CET 2024
-SLURM_JOB_ID: 1067925
+In directory: /tmp/tmp.tOUf64TdjS
+Starting on: Wed Dec 18 10:22:15 CET 2024
+SLURM_JOB_ID: 1070044
 Conda activated
 # conda environments:
 #
@@ -9,3 +9,6 @@ base                     /itet-stor/trachsele/net_scratch/conda
 ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
 jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
 
+We are using Ultra
+train_data.x_user.size(1): 1
+Load rspmm extension. This may take a while...
