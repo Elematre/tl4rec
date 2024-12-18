@@ -2,14 +2,14 @@
 
 To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
   deprecated.topic(
-11:39:29   Random seed: 1024
-11:39:29   Config file: config/recommender/slurm_cfg.yaml
-11:39:29   {'checkpoint': None,
- 'dataset': {'class': 'Yelp18',
+10:20:28   Random seed: 1024
+10:20:28   Config file: config/recommender/slurm_cfg.yaml
+10:20:28   {'checkpoint': None,
+ 'dataset': {'class': 'Gowalla',
              'root': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data'},
  'model': {'class': 'Ultra',
-           'embedding_item': {'hidden_dims': [32, 32], 'input_dim': 18},
-           'embedding_user': {'hidden_dims': [32, 32], 'input_dim': 24},
+           'embedding_item': {'hidden_dims': [32, 32]},
+           'embedding_user': {'hidden_dims': [32, 32]},
            'entity_model': {'aggregate_func': 'sum',
                             'class': 'EntityNBFNet',
                             'hidden_dims': [32, 32, 32, 32, 32],
@@ -26,8 +26,8 @@ To remove this warning, please choose a default channel explicitly via 'conda co
                               'short_cut': True},
            'simple_model': {'aggregate_func': 'sum',
                             'class': 'SimpleNBFNet',
-                            'hidden_dims': [40, 40, 40, 40],
-                            'input_dim': 40,
+                            'hidden_dims': [64, 64, 64, 64],
+                            'input_dim': 64,
                             'layer_norm': True,
                             'message_func': 'distmult',
                             'short_cut': True}},
@@ -37,45 +37,51 @@ To remove this warning, please choose a default channel explicitly via 'conda co
  'task': {'adversarial_temperature': 0,
           'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10', 'ndcg@20'],
           'name': 'TransductiveInference',
-          'num_negative': 1,
+          'num_negative': 8,
           'strict_negative': True},
- 'train': {'batch_per_epoch': 48829,
-           'batch_size': 64,
+ 'train': {'batch_per_epoch': 11133,
+           'batch_size': 32,
            'gpus': [0],
            'gradient_clip': False,
            'init_linear_weights': False,
            'log_interval': 100,
-           'loss': 'bpr',
-           'num_epoch': 10,
+           'loss': 'bce',
+           'num_epoch': 15,
+           'num_evals': 10,
            'target_metric': 'ndcg@20',
+           'test_batch_size': 8,
            'wandb': True}}
 wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
 wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
 wandb: Tracking run with wandb version 0.18.5
-wandb: Run data is saved locally in /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/model_outputs/logs/Ultra/Yelp18/2024-11-28-11-39-29/wandb/run-20241128_113929-00am2hjx
+wandb: Run data is saved locally in /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/model_outputs/logs/Ultra/Gowalla/2024-12-18-10-20-28/wandb/run-20241218_102028-enhlrn5t
 wandb: Run `wandb offline` to turn off syncing.
-wandb: Syncing run run-Yelp18-2024-11-28_11-39
+wandb: Syncing run run-Gowalla-2024-12-18_10-20
 wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
-wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/00am2hjx
-11:39:30   Yelp18 dataset
-11:39:30   #train: 1097007, #valid: 140252, #test: 324147
-11:39:31   ------------------------------
-11:39:31   Number of parameters: 57521
-11:39:31   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-11:39:31   Epoch 0 begin
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/enhlrn5t
+10:21:15   Gowalla dataset
+10:21:15   #train: 712504, #valid: 97624, #test: 217242
+10:21:15   ------------------------------
+10:21:15   Number of parameters: 139329
+10:21:15   >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+10:21:15   Epoch 0 begin
 Traceback (most recent call last):
-  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 560, in <module>
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 458, in <module>
     train_and_validate(cfg, model, train_data, valid_data, filtered_data=val_filtered_data, device=device, batch_per_epoch=cfg.train.batch_per_epoch, logger=logger)
-  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 194, in train_and_validate
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 77, in train_and_validate
     pred = parallel_model(train_data, batch)
   File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
   File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 63, in forward
-    user_embedding = self.user_mlp(data.x_user)  # shape: (num_users, 16)
-  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch_geometric/data/data.py", line 482, in __getattr__
-    return getattr(self._store, key)
-  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch_geometric/data/storage.py", line 87, in __getattr__
-    raise AttributeError(
-AttributeError: 'GlobalStorage' object has no attribute 'x_user'
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 65, in forward
+    score = self.simple_model(data, batch, user_embedding, item_embedding)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 240, in forward
+    output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/ultra/models.py", line 188, in bellmanford
+    output = torch.cat(hiddens + [node_query], dim=-1)
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.84 GiB. GPU 0 has a total capacty of 23.64 GiB of which 3.62 GiB is free. Including non-PyTorch memory, this process has 20.03 GiB memory in use. Of the allocated memory 19.77 GiB is allocated by PyTorch, and 66.13 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting max_split_size_mb to avoid fragmentation.  See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF

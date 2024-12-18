@@ -1,7 +1,7 @@
 Running on node: tikgpu04
-In directory: /tmp/tmp.EuxIthL4nu
-Starting on: Mon Dec  9 12:46:33 CET 2024
-SLURM_JOB_ID: 1068707
+In directory: /tmp/tmp.kBppdb6F5X
+Starting on: Wed Dec 18 10:20:17 CET 2024
+SLURM_JOB_ID: 1070043
 Conda activated
 # conda environments:
 #
@@ -10,4 +10,7 @@ ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
 jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
 
 We are using Ultra
+train_data.x_user.size(1): 1
 Load rspmm extension. This may take a while...
+[1;34mwandb[0m: 🚀 View run [33mrun-Gowalla-2024-12-18_10-20[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/enhlrn5t[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241218_102028-enhlrn5t/logs[0m

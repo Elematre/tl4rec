@@ -1,0 +1,16 @@
+Running on node: tikgpu04
+In directory: /tmp/tmp.5BAcBIJrc7
+Starting on: Wed Dec 18 10:12:43 CET 2024
+SLURM_JOB_ID: 1070042
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+We are using Ultra
+train_data.x_user.size(1): 1
+Load rspmm extension. This may take a while...
+[1;34mwandb[0m: 🚀 View run [33mrun-Gowalla-2024-12-18_10-12[0m at: [34mhttps://wandb.ai/pitri-eth-z-rich/tl4rec/runs/ssze6ggc[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20241218_101255-ssze6ggc/logs[0m
