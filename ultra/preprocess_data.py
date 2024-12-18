@@ -294,15 +294,17 @@ def process_df(df_tup):
 
     # Convert to PyTorch tensor
     feature_tensor = torch.tensor(processed_features, dtype=torch.float32)
-    print(f"Feature tensor shape: {feature_tensor.shape}")
-    print(f"first 10 entries: {feature_tensor[:10,:]}")
+    print(f"Feature tensor shape(before constant_col_detection): {feature_tensor.shape}")
     
-    # DEBUG: Validate no zero columns in the tensor
-    column_sums = feature_tensor.sum(dim=0)
-    zero_columns = (column_sums == 0).nonzero(as_tuple=True)[0]
-    if len(zero_columns) > 0:
-        raise ValueError(f"Zero-information columns detected at indices: {zero_columns.tolist()}")
-        
+   # DEBUG: Identify and delete constant columns in the tensor
+    constant_columns = (feature_tensor == feature_tensor[0, :]).all(dim=0).nonzero(as_tuple=True)[0]
+    
+    if len(constant_columns) > 0:
+        print(f"Constant columns detected at indices: {constant_columns.tolist()}. Deleting these columns...")
+        feature_tensor = feature_tensor[:, [i for i in range(feature_tensor.size(1)) if i not in constant_columns]]
+
+    print(f"final Feature tensor shape: {feature_tensor.shape}")
+
     #raise ValueError("feature preprocessing sucessful")   
     print ("process_df was sucessful")
     
