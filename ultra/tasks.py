@@ -120,7 +120,10 @@ def negative_sampling(data, batch, num_negative, strict=True):
         neg_t_candidate = t_mask.nonzero()[:, 1] # 1 since we are interested in the true COL indices
         num_t_candidate = t_mask.sum(dim=-1)
         # draw samples for negative tails
+        
+        
         rand = torch.rand(len(t_mask), num_negative, device=batch.device)
+
         
         index = (rand * num_t_candidate.unsqueeze(-1)).long()
         # now index is (bs//2, num_neg) containing a random index from 0 to number of matches for this batchrow h,r
@@ -239,7 +242,7 @@ def invert_mask(t_mask, h_mask, num_users):
     return t_mask_inv, h_mask_inv
         
     
-
+# originally method for ultra. Assumes pred is of size (bs, num_nodes) used on most datasets where we evaluate vs all negatives
 def compute_ranking(pred, target, mask=None):
     pos_pred = pred.gather(-1, target.unsqueeze(-1))
     #pos_pred = (bs,1)
@@ -251,6 +254,20 @@ def compute_ranking(pred, target, mask=None):
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
     # ranking = (bs)
     return ranking
+    
+# adjusted method. Assumes pred is of size (bs, 1 + num_negs) used for evaluation on the amazon datasets (against 100 negative)
+def compute_ranking_against_num_negs(pred, target, mask=None):
+    
+     # Sort predictions along the last dimension in descending order
+    sorted_pred, sorted_indices = pred.sort(dim=-1, descending=True)
+    
+    # Find where the positive sample (index 0 in `pred`) is located in the sorted predictions
+    positive_indices = (sorted_indices == 0).nonzero(as_tuple=True)
+    
+    # The second value in `positive_indices` gives the rank of the positive sample within each batch
+    rankings = positive_indices[1] + 1  # Convert 0-based to 1-based ranking
+    
+    return rankings
     
 
 def get_relevance_labels(t_mask, h_mask, pred_type="tail"):

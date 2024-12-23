@@ -11,6 +11,7 @@ declare -A DATASETS=(
     ["amazon_fashion"]="Fashion"
     ["amazon_men"]="Men"
     ["amazon_games"]="Video_Games"
+    ["amazon_beauty"]="Beauty"
 )
 
 # Iterate through datasets and organize files
