@@ -49,8 +49,9 @@ class Ultra(nn.Module):
         super(Ultra, self).__init__()
         
         # MLP's for obtaining item/user emb.
-        self.item_mlp = MLP(**embedding_item_cfg)
-        self.user_mlp = MLP(**embedding_user_cfg)
+        #self.item_mlp = MLP(**embedding_item_cfg)
+        #self.user_mlp = MLP(**embedding_user_cfg)
+        self.hidden_dim = embedding_user_cfg["hidden_dims"][0]
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
         # rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
@@ -60,8 +61,13 @@ class Ultra(nn.Module):
         
     def forward(self, data, batch):
         # calculate embeddings
-        user_embedding = self.user_mlp(data.x_user)  # shape: (num_users, 16)
-        item_embedding = self.item_mlp(data.x_item)
+        #user_embedding = self.user_mlp(data.x_user)  # shape: (num_users, 16)
+        #item_embedding = self.item_mlp(data.x_item)
+        num_users = data.num_users
+        num_items = data.num_items
+        user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
+        item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+        
         score = self.simple_model(data, batch, user_embedding, item_embedding)
         # what does score look like? score (batch_size, 1 + num negatives)
         

@@ -661,15 +661,23 @@ class Yelp18(InMemoryDataset):
         }
         user_features = {remapped_id: default_user_features.copy() for remapped_id in range(len(user_map))}
         missing = 0
+        matched = 0
         # Parse the JSON file
         with open(user_json_path, "r") as f:
             for line in f:
                 user = json.loads(line)
                 if user["user_id"] in user_map:
+                    # Process the yelping_since date
+                    try:
+                        yelping_since = datetime.strptime(user["yelping_since"], "%Y-%m-%d").strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        yelping_since = None
+                        print ("partially failed")
+                    matched += 1
                     user_features[user_map[user["user_id"]]] = {
                         "review_count": int(user["review_count"]),
                         "average_stars": float(user["average_stars"]),
-                        "yelping_since": str(user["yelping_since"]),
+                        "yelping_since": yelping_since,
                         "friends": len(user["friends"]),  # Number of friends
                         "useful": int(user["useful"]),
                         "funny": int(user["funny"]),
@@ -691,6 +699,8 @@ class Yelp18(InMemoryDataset):
                 else:
                     missing += 1
         print (f"missing user feautres: {missing}")
+        print (f"matched user feautres: {matched}")
+        print (f"num users: {31668}")
                     
     
         # Convert to DataFrame
@@ -748,12 +758,13 @@ class Yelp18(InMemoryDataset):
             "hours": None,
         }
         item_features = {remapped_id: default_item_features.copy() for remapped_id in range(len(item_map))}
-    
+        matched = 0
         # Parse the JSON file
         with open(item_json_path, "r") as f:
             for line in f:
                 business = json.loads(line)
                 if business["business_id"] in item_map:
+                    matched += 1
                     # Extract and clean attributes
                     attributes = business.get("attributes", {})
                     attributes_cleaned = self.flatten_attributes(attributes)
@@ -762,6 +773,10 @@ class Yelp18(InMemoryDataset):
                     categories = business.get("categories", "")
                     if isinstance(categories, str):
                         categories = [cat.strip() for cat in categories.split(",")]
+                    latitude = float(business["latitude"]) if business["latitude"] is not None else float("nan")
+                    longitude = float(business["longitude"]) if business["longitude"] is not None else float("nan")
+    
+
     
                     # Add item features
                     item_features[item_map[business["business_id"]]] = {
@@ -770,8 +785,8 @@ class Yelp18(InMemoryDataset):
                         "city": str(business["city"]),
                         "state": str(business["state"]),
                         "postal_code": str(business["postal_code"]),
-                        "latitude": float(business["latitude"]),
-                        "longitude": float(business["longitude"]),
+                        "latitude": latitude,
+                        "longitude": longitude,
                         "stars": float(business["stars"]),
                         "review_count": int(business["review_count"]),
                         "is_open": int(business["is_open"]),
@@ -779,6 +794,10 @@ class Yelp18(InMemoryDataset):
                         "attributes": attributes_cleaned,
                         "hours": business.get("hours", {}),
                     }
+
+                    
+                    
+        print (f"missing item feautres: {38048 - matched}")
     
         # Convert to DataFrame
         df = pd.DataFrame.from_dict(item_features, orient="index")
@@ -941,7 +960,7 @@ class Yelp18(InMemoryDataset):
         # load edge features
         edge_features_path = os.path.join(self.raw_dir, "yelp_academic_dataset_review.json")
         edge_features_dict = self.load_edge_features_dict(edge_features_path, user_map, item_map)
-        print(f"len of edge_dict: {len(edge_features_dict)}")
+        #print(f"len of edge_dict: {len(edge_features_dict)}")
         train_edge_features_df = self.map_reviews_to_edges(train_edge_index, edge_features_dict)
         test_edge_features_df = self.map_reviews_to_edges(test_edge_index, edge_features_dict)
         #test_functions.test_edge_feature_alignment(train_edge_index, train_edge_features_df)
@@ -1007,7 +1026,7 @@ class Yelp18(InMemoryDataset):
         train_data = Data(
             edge_index=train_edges, edge_type=train_edge_types, edge_attr = train_edges_features,
             num_nodes=num_nodes,
-            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types, target_edge_attr = train_target_edges,
+            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types, target_edge_attr = train_target_edge_features,
             num_relations=num_relations
         )
 
