@@ -1,3 +1,5 @@
+import wandb
+import datetime
 import os
 import sys
 import copy
@@ -134,9 +136,18 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
-    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
+    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)    
     model.load_state_dict(state["model"])
     util.synchronize()
+    # save the final model state
+    if rank == 0:
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pth")
+        logger.warning(f"Save final_ckpt to {checkpoint_path}")
+        torch.save(state, checkpoint_path)
+
+    
 
 
 @torch.no_grad()
@@ -256,17 +267,43 @@ if __name__ == "__main__":
     train_data = [td.to(device) for td in train_data]
     valid_data = [vd.to(device) for vd in valid_data]
     test_data = [tst.to(device) for tst in test_data]
+    
+    #for td in train_data:
+        #print (td)
+    
 
+    # init Ultra
+    rel_model_cfg= cfg.model.relation_model
+    entity_model_cfg= cfg.model.entity_model
+    embedding_user_cfg = cfg.model.embedding_user
+    embedding_item_cfg = cfg.model.embedding_item
+    # assuming the entity model has the same dimensions in every layer
+    entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
+    # adding the input_dims of the mlp
+    print (f"train_data.x_user.size(1): {train_data[0].x_user.size(1)}")
+    embedding_user_cfg["input_dim"] = train_data[0].x_user.size(1)
+    embedding_item_cfg["input_dim"] = train_data[0].x_item.size(1)
     model = Ultra(
-        rel_model_cfg=cfg.model.relation_model,
-        entity_model_cfg=cfg.model.entity_model,
+        simple_model_cfg= cfg.model.simple_model,
+        embedding_user_cfg = embedding_user_cfg,
+        embedding_item_cfg = embedding_item_cfg
     )
 
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         model.load_state_dict(state["model"])
 
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    run_name = f"pretrain-{current_time}"
+    wandb_on = cfg.train["wandb"]
+    if wandb_on:
+        wandb.init(
+            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+
     model = model.to(device)
+    if wandb_on:
+        wandb.watch(model, log= None)
+    
     
     assert task_name == "MultiGraphPretraining", "Only the MultiGraphPretraining task is allowed for this script"
 
@@ -275,7 +312,10 @@ if __name__ == "__main__":
         Data(
             edge_index=torch.cat([trg.target_edge_index, valg.target_edge_index, testg.target_edge_index], dim=1), 
             edge_type=torch.cat([trg.target_edge_type, valg.target_edge_type, testg.target_edge_type,]),
+            num_users = trg.num_users,
+            num_items = trg.num_items,
             num_nodes=trg.num_nodes).to(device)
+            
         for trg, valg, testg in zip(train_data, valid_data, test_data)
     ]
 
@@ -284,6 +324,7 @@ if __name__ == "__main__":
         logger.warning(separator)
         logger.warning("Evaluate on valid")
     test(cfg, model, valid_data, filtered_data=filtered_data)
+  
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")

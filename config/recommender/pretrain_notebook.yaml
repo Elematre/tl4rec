@@ -1,11 +1,9 @@
 output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 
 dataset:
-  class: {{ dataset }}
+  class: JointDataset
+  graphs: [Amazon_Beauty, Amazon_Games]
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
-
-#the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-model_type: Ultra  # Options: Ultra, LightGCN
 
 model:
   class: Ultra
@@ -38,33 +36,24 @@ model:
     hidden_dims: [32, 32]
   embedding_item:
     hidden_dims: [32, 32]
-    
-
 
 task:
-  name: TransductiveInference
-  num_negative: 1
+  name: MultiGraphPretraining
+  num_negative: 8
   strict_negative: yes
-  adversarial_temperature: 0
-  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
-  # note if one changes the k from ndcg this should also be adjusted in the code
+  adversarial_temperature: 1
+  metric: [mr, mrr, hits@1, hits@3, hits@10]
 
 optimizer:
   class: AdamW
-  lr:  0.005
+  lr: 5.0e-4
 
 train:
   gpus: [{{ gpus }}]
   batch_size: 8
-  num_epoch: {{ epochs }}
-  log_interval: 100
-  batch_per_epoch: {{ bpe }}
-  loss: bpr # Options: Bpr, bce
-  target_metric: ndcg@20
-  wandb: no
-  gradient_clip: no
-  init_linear_weights: no
-  num_evals: 10
-  test_batch_size: 8
-
-checkpoint: {{ ckpt }}
+  num_epoch: 1
+  log_interval: 800
+  batch_per_epoch: 1
+  fast_test: 100
+  wandb: yes
+  #logger: wandb

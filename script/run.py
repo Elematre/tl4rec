@@ -173,7 +173,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     util.synchronize()
 
 @torch.no_grad()
-def test1(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None):
+# optimized method for the amazon dataset but does not produce the same result as test
+def test_optimized(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None):
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
@@ -619,6 +620,10 @@ if __name__ == "__main__":
     device = util.get_device(cfg)
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
+    #print (f"edge_attr.shape = {train_data.edge_attr.shape}")
+    #print (f"x_user.shape = {train_data.x_user.shape}")
+    #print (f"x_item.shape = {train_data.x_item.shape}")
+    #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)

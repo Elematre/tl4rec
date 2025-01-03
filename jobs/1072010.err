@@ -1,0 +1,67 @@
+/itet-stor/trachsele/net_scratch/conda/lib/python3.12/site-packages/conda/base/context.py:982: FutureWarning: Adding 'defaults' to the channel list implicitly is deprecated and will be removed in 25.3. 
+
+To remove this warning, please choose a default channel explicitly via 'conda config --add channels <name>', e.g. 'conda config --add channels defaults'.
+  deprecated.topic(
+09:19:30   Random seed: 1024
+09:19:30   Config file: config/recommender/slurm_cfg.yaml
+09:19:30   {'checkpoint': None,
+ 'dataset': {'class': 'Amazon_Beauty',
+             'root': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data'},
+ 'model': {'class': 'Ultra',
+           'embedding_item': {'hidden_dims': [32, 32]},
+           'embedding_user': {'hidden_dims': [32, 32]},
+           'entity_model': {'aggregate_func': 'sum',
+                            'class': 'EntityNBFNet',
+                            'hidden_dims': [32, 32, 32, 32, 32],
+                            'input_dim': 32,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True},
+           'relation_model': {'aggregate_func': 'sum',
+                              'class': 'RelNBFNet',
+                              'hidden_dims': [8, 8],
+                              'input_dim': 8,
+                              'layer_norm': True,
+                              'message_func': 'distmult',
+                              'short_cut': True},
+           'simple_model': {'aggregate_func': 'sum',
+                            'class': 'SimpleNBFNet',
+                            'hidden_dims': [40, 40, 40, 40],
+                            'input_dim': 40,
+                            'layer_norm': True,
+                            'message_func': 'distmult',
+                            'short_cut': True}},
+ 'model_type': 'Ultra',
+ 'optimizer': {'class': 'AdamW', 'lr': 0.005},
+ 'output_dir': '/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs',
+ 'task': {'adversarial_temperature': 0,
+          'metric': ['mr', 'mrr', 'hits@1', 'hits@3', 'hits@10', 'ndcg@20'],
+          'name': 'TransductiveInference',
+          'num_negative': 8,
+          'strict_negative': True},
+ 'train': {'batch_per_epoch': 73478,
+           'batch_size': 8,
+           'gpus': [0],
+           'gradient_clip': False,
+           'init_linear_weights': False,
+           'log_interval': 100,
+           'loss': 'bce',
+           'num_epoch': 15,
+           'num_evals': 10,
+           'target_metric': 'ndcg@20',
+           'test_batch_size': 8,
+           'wandb': True}}
+wandb: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: pitri (pitri-eth-z-rich). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.18.5
+wandb: Run data is saved locally in /usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/model_outputs/logs/Ultra/Amazon_Beauty/2025-01-03-09-19-30/wandb/run-20250103_091933-mfjnky0d
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run run-Amazon_Beauty-2025-01-03_09-19
+wandb: ⭐️ View project at https://wandb.ai/pitri-eth-z-rich/tl4rec
+wandb: 🚀 View run at https://wandb.ai/pitri-eth-z-rich/tl4rec/runs/mfjnky0d
+09:19:36   Amazon_Beauty dataset
+09:19:36   #train: 293912, #valid: 50498, #test: 50498
+Traceback (most recent call last):
+  File "/usr/itetnas04/data-scratch-01/trachsele/data/tl4rec/script/run.py", line 626, in <module>
+    raise ValueError("until here")
+ValueError: until here

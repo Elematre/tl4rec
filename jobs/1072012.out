@@ -1,0 +1,15 @@
+Running on node: tikgpu05
+In directory: /tmp/tmp.zS723pZplM
+Starting on: Fri Jan  3 09:29:21 CET 2025
+SLURM_JOB_ID: 1072012
+Conda activated
+# conda environments:
+#
+base                     /itet-stor/trachsele/net_scratch/conda
+ba_bugfix             *  /itet-stor/trachsele/net_scratch/conda_envs/ba_bugfix
+jupyternb                /itet-stor/trachsele/net_scratch/conda_envs/jupyternb
+
+We are using a amazon dataset
+We are using Ultra
+train_data.x_user.size(1): 1
+Load rspmm extension. This may take a while...

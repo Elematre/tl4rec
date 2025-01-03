@@ -54,7 +54,7 @@ cd ${DIRECTORY}
 
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
 
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Gowalla --epochs 15 --bpe 11133 --gpus "[0]" --ckpt null
+python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Beauty --epochs 15 --bpe 73478 --gpus "[0]" --ckpt null
 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
