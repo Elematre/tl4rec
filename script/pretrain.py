@@ -146,7 +146,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         dataset_prefix = ''.join([name[-6:] for name in dataset_names])  # 'AmazoAmazo'
     
         # Get the current timestamp in a readable format
-        current_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     
         # Construct the checkpoint filename
         checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"

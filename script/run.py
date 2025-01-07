@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
-from ultra.models import Ultra,My_LightGCN
+from ultra.models import Gru_Ultra,My_LightGCN
 
 
 separator = ">" * 30
@@ -607,7 +607,7 @@ if __name__ == "__main__":
         nr_eval_negs = 100
         k = 10
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    model_type = cfg['model_type']
+    model_type = cfg.train['model_type']
     run_type = "End-to-End"
     num_epoch = cfg.train.num_epoch
     if num_epoch == 0:
@@ -626,9 +626,9 @@ if __name__ == "__main__":
     device = util.get_device(cfg)
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
-    #print (f"edge_attr.shape = {train_data.edge_attr.shape}")
-    #print (f"x_user.shape = {train_data.x_user.shape}")
-    #print (f"x_item.shape = {train_data.x_item.shape}")
+    print (f"edge_attr.shape = {train_data.edge_attr.shape}")
+    print (f"x_user.shape = {train_data.x_user.shape}")
+    print (f"x_item.shape = {train_data.x_item.shape}")
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
@@ -639,21 +639,13 @@ if __name__ == "__main__":
     
     
     if model_type == "Ultra":
-        print("We are using Ultra")
-        rel_model_cfg= cfg.model.relation_model
-        entity_model_cfg= cfg.model.entity_model
-        embedding_user_cfg = cfg.model.embedding_user
-        embedding_item_cfg = cfg.model.embedding_item
-        # assuming the entity model has the same dimensions in every layer
-        entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
-        # adding the input_dims of the mlp
-        print (f"train_data.x_user.size(1): {train_data.x_user.size(1)}")
-        embedding_user_cfg["input_dim"] = train_data.x_user.size(1)
-        embedding_item_cfg["input_dim"] = train_data.x_item.size(1)
-        model = Ultra(
-            simple_model_cfg= cfg.model.simple_model,
-            embedding_user_cfg = embedding_user_cfg,
-            embedding_item_cfg = embedding_item_cfg
+        print("We are using Gru_Ultra")
+        # adding the input_dims for the projection mlp's
+        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
+        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+        
+        model = Gru_Ultra(
+            cfg = cfg.model
         )
     else:
         model = My_LightGCN(train_data.num_nodes)

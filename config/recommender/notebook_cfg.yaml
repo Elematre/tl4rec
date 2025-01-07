@@ -5,39 +5,28 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-model_type: Ultra  # Options: Ultra, LightGCN
+
 
 model:
-  class: Ultra
-  relation_model:
-    class: RelNBFNet
-    input_dim: 8
-    hidden_dims: [8, 8]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  entity_model:
-    class: EntityNBFNet
-    input_dim: 32
-    hidden_dims: [32, 32, 32, 32, 32]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  simple_model:
-    class: SimpleNBFNet
-    input_dim: 40
-    hidden_dims: [40, 40, 40, 40]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-    # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
-  embedding_user:
-    hidden_dims: [32, 32]
-  embedding_item:
-    hidden_dims: [32, 32]
+  class: Gru-Ultra
+  user_projection:
+   hidden_dims: [64]
+  item_projection: 
+   hidden_dims: [64]
+  backbone_model:
+    simple_model:
+      class: SimpleNBFNet
+      input_dim: 64
+      hidden_dims: [64, 64,64, 64]
+      message_func: distmult
+      aggregate_func: sum
+      short_cut: yes
+      layer_norm: yes
+      # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
+    embedding_user:
+      hidden_dims: [64, 64]
+    embedding_item:
+      hidden_dims: [64, 64]
     
 
 
@@ -54,6 +43,7 @@ optimizer:
   lr:  0.005
 
 train:
+  model_type: Ultra  # Options: Ultra, LightGCN
   gpus: [{{ gpus }}]
   batch_size: 8
   num_epoch: {{ epochs }}
