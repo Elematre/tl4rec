@@ -451,14 +451,12 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         
         pos_h_index, pos_t_index, pos_r_index = batch.t()
         # pos_h_index = (bs)
-
+        # compute ndcg:
+        
         # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
         t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
         t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
         # test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
-        
-        
-        
         
         # mask out all scores of known edges. 
         t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
@@ -601,7 +599,7 @@ if __name__ == "__main__":
         logger.warning(pprint.pformat(cfg))
 
         
-    # Initialize Weights & Biases run
+    # Initialize Weights & Biases run and assign proper name to the run
     dataset_name = cfg.dataset["class"]
     is_amazon = dataset_name.startswith("Amazon")
     if is_amazon:
@@ -609,7 +607,15 @@ if __name__ == "__main__":
         nr_eval_negs = 100
         k = 10
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"run-{dataset_name}-{current_time}"
+    model_type = cfg['model_type']
+    run_type = "End-to-End"
+    num_epoch = cfg.train.num_epoch
+    if num_epoch == 0:
+        run_type = "0-Shot"
+    elif num_epoch <= 4:
+        run_type = "Fine-Tuned"
+        
+    run_name = f"{dataset_name}-{run_type}-{model_type}-{current_time}"
     wandb_on = cfg.train["wandb"]
     if wandb_on:
         wandb.init(
@@ -631,7 +637,7 @@ if __name__ == "__main__":
     # entity_model needs to know the dimensions of the relation model
     
     
-    model_type = cfg['model_type']
+    
     if model_type == "Ultra":
         print("We are using Ultra")
         rel_model_cfg= cfg.model.relation_model

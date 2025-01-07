@@ -17,7 +17,7 @@ from torch.utils import data as torch_data
 from torch_geometric.data import Data
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from ultra import tasks, util
+from ultra import tasks, util, test_functions
 from ultra.models import Ultra
 
 
@@ -129,7 +129,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
-        result = test(cfg, model, valid_data, filtered_data=filtered_data)
+        result = test(cfg, model, valid_data, filtered_data=filtered_data, context = 0)
         if result > best_result:
             best_result = result
             best_epoch = epoch
@@ -141,25 +141,42 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
     util.synchronize()
     # save the final model state
     if rank == 0:
+        # Extract the last 6 letters of each dataset name
+        dataset_names = cfg.dataset['graphs']  # Example: ['Amazon_Beauty', 'Amazon_Games']
+        dataset_prefix = ''.join([name[-6:] for name in dataset_names])  # 'AmazoAmazo'
+    
+        # Get the current timestamp in a readable format
+        current_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+        # Construct the checkpoint filename
         checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pth")
+        checkpoint_name = f"{dataset_prefix}_{current_time}.pth"
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+    
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
         torch.save(state, checkpoint_path)
+
 
     
 
 
 @torch.no_grad()
-def test(cfg, model, test_data, filtered_data=None):
+def test(cfg, model, test_data, filtered_data=None, context = 0):
+    # context is used for determining the calling context of test (train, valid, test)
+    
+    k = 20
     world_size = util.get_world_size()
     rank = util.get_rank()
+    wandb_on = cfg.train["wandb"]
     
     # test_data is a tuple of validation/test datasets
     # process sequentially
     all_metrics = []
+    dataset_nr = 0
     for test_graph, filters in zip(test_data, filtered_data):
-
+        
+        num_users = test_graph.num_users
         test_triplets = torch.cat([test_graph.target_edge_index, test_graph.target_edge_type.unsqueeze(0)]).t()
         sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
         test_loader = torch_data.DataLoader(test_triplets, cfg.train.batch_size, sampler=sampler)
@@ -167,6 +184,7 @@ def test(cfg, model, test_data, filtered_data=None):
         model.eval()
         rankings = []
         num_negatives = []
+        ndcgs = []
         for batch in test_loader:
             t_batch, h_batch = tasks.all_negative(test_graph, batch)
             t_pred = model(test_graph, t_batch)
@@ -177,6 +195,30 @@ def test(cfg, model, test_data, filtered_data=None):
             else:
                 t_mask, h_mask = tasks.strict_negative_mask(filters, batch)
             pos_h_index, pos_t_index, pos_r_index = batch.t()
+            
+            # compute ndcg@20
+            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
+            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_graph, batch, context = 3)
+            t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
+            #test_functions.validate_relevance(t_relevance, h_relevance, test_graph, pos_h_index, pos_t_index)
+            
+            # mask out all scores of known edges. 
+            t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
+            # mask out pos_t/h_index 
+            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
+            h_mask_pred = h_mask_inv.logical_xor(h_relevance)
+            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_graph, filters, pos_h_index, pos_t_index)
+    
+            t_pred[t_mask_pred] = float('-inf')
+            h_pred[h_mask_pred] = float('-inf')
+        
+            #compute ndcg scores 
+            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+            ndcgs += [t_ndcg, h_ndcg]
+
+    
+            
             t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
             h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
             num_t_negative = t_mask.sum(dim=-1)
@@ -186,26 +228,37 @@ def test(cfg, model, test_data, filtered_data=None):
             num_negatives += [num_t_negative, num_h_negative]
 
         ranking = torch.cat(rankings)
+        ndcg = torch.cat(ndcgs)
         num_negative = torch.cat(num_negatives)
         all_size = torch.zeros(world_size, dtype=torch.long, device=device)
         all_size[rank] = len(ranking)
         if world_size > 1:
             dist.all_reduce(all_size, op=dist.ReduceOp.SUM)
         cum_size = all_size.cumsum(0)
+        
+        all_ndcg = torch.zeros(all_size.sum(), dtype=torch.long, device=device)
+        all_ndcg[cum_size[rank] - all_size[rank]: cum_size[rank]] = ndcg
+        
         all_ranking = torch.zeros(all_size.sum(), dtype=torch.long, device=device)
         all_ranking[cum_size[rank] - all_size[rank]: cum_size[rank]] = ranking
+        
         all_num_negative = torch.zeros(all_size.sum(), dtype=torch.long, device=device)
         all_num_negative[cum_size[rank] - all_size[rank]: cum_size[rank]] = num_negative
         if world_size > 1:
             dist.all_reduce(all_ranking, op=dist.ReduceOp.SUM)
             dist.all_reduce(all_num_negative, op=dist.ReduceOp.SUM)
+            dist.all_reduce(all_ndcg, op=dist.ReduceOp.SUM)
 
+        metrics = {}
         if rank == 0:
             for metric in cfg.task.metric:
                 if metric == "mr":
                     score = all_ranking.float().mean()
                 elif metric == "mrr":
                     score = (1 / all_ranking.float()).mean()
+
+                elif metric == "ndcg@20":
+                     score = all_ndcg.float().mean().item()
                 elif metric.startswith("hits@"):
                     values = metric[5:].split("_")
                     threshold = int(values[0])
@@ -223,12 +276,27 @@ def test(cfg, model, test_data, filtered_data=None):
                     else:
                         score = (all_ranking <= threshold).float().mean()
                 logger.warning("%s: %g" % (metric, score))
+                metrics[metric] = score
+            
+                
         mrr = (1 / all_ranking.float()).mean()
-
+        
         all_metrics.append(mrr)
         if rank == 0:
             logger.warning(separator)
-
+            
+        if rank == 0 and wandb_on:
+            for metric, score in metrics.items():
+                if context == 2:
+                    wandb.summary[f"test/performance/{dataset_nr}/{metric}"] = score
+                elif context == 1:
+                    wandb.summary[f"validation/performance/{dataset_nr}/{metric}"] = score
+                else:
+                    wandb.log({f"train_validation/performance/{dataset_nr}/{metric}": score})
+        dataset_nr += 1
+            
+    # to me it needs this
+    util.synchronize()
     avg_metric = sum(all_metrics) / len(all_metrics)
     return avg_metric
 
@@ -323,9 +391,9 @@ if __name__ == "__main__":
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on valid")
-    test(cfg, model, valid_data, filtered_data=filtered_data)
+    test(cfg, model, valid_data, filtered_data=filtered_data, context = 1)
   
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")
-    test(cfg, model, test_data, filtered_data=filtered_data)
+    test(cfg, model, test_data, filtered_data=filtered_data, context = 2)

@@ -43,7 +43,7 @@ model:
 
 task:
   name: TransductiveInference
-  num_negative: 1
+  num_negative: 8
   strict_negative: yes
   adversarial_temperature: 0
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
