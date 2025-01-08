@@ -21,7 +21,14 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def freeze_backbone(model):
+    for name, param in model.ultra.named_parameters():
+        param.requires_grad = False
 
+def unfreeze_backbone(model):
+    for name, param in model.ultra.named_parameters():
+        param.requires_grad = True
+            
 def detect_variables(cfg_file):
     with open(cfg_file, "r") as fin:
         raw = fin.read()

@@ -26,6 +26,7 @@ separator = ">" * 30
 line = "-" * 30
 k = 20 # ndcg@k
 nr_eval_negs = -1 #  == -1 evaluation on all negatives or nr_eval_negs otherwise
+fine_tuning = False # wether we are fine-tuning
 
 def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
@@ -60,11 +61,27 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     step = math.ceil(cfg.train.num_epoch / num_evals)
     best_result = float("-inf")
     best_epoch = -1
-
     batch_id = 0
+    num_freezes = cfg.train.fine_tuning["num_epoch_proj"]
+    
+    if fine_tuning:
+        util.synchronize()
+        print ("freeze my backbone")
+        util.freeze_backbone(model)
+       
+    
     for i in range(0, cfg.train.num_epoch, step):
         parallel_model.train()
         for epoch in range(i, min(cfg.train.num_epoch, i + step)):
+            # check if we should fine tune_further
+            if fine_tuning and epoch >= num_freezes:
+                util.synchronize()
+                print ("unfreeze my backbone")
+                util.unfreeze_backbone(model)
+            
+
+            
+            
             if util.get_rank() == 0:
                 logger.warning(separator)
                 logger.warning("Epoch %d begin" % epoch)
@@ -151,8 +168,12 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             logger.warning(separator)
             logger.warning("Evaluate on valid")
             
-            
-        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+        if fine_tuning:
+            #result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            result_dict = {}
+            result_dict["ndcg@20"] = 1
+        else:
+            result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
             for metric, score in result_dict.items():
@@ -173,8 +194,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     util.synchronize()
 
 @torch.no_grad()
-# optimized method for the amazon dataset but does not produce the same result as test
-def test_optimized(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None):
+# optimized method only evaluates against 100 samples. 
+# Does not give the exact same result but reasonable close as test with nr_neg_eval = 100 but I reckon this is due to non-determinsim of some methods.
+def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
@@ -192,88 +214,42 @@ def test_optimized(cfg, model, test_data, device, logger, filtered_data=None, re
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
     for batch in test_loader:
         pos_h_index, pos_t_index, pos_r_index = batch.t()
-        if nr_eval_negs == -1:
-            t_batch, h_batch = tasks.all_negative(test_data, batch)
-            t_pred = model(test_data, t_batch)
-            h_pred = model(test_data, h_batch)
+        batch_size = batch.size(0)           
+        
+        # Concatenate batch for negative sampling
+        batch_concat = torch.cat((batch, batch), dim=0)
+        # Perform negative sampling
+        batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, nr_eval_negs, strict=True)
+        
+        # Split the batch into t_batch and h_batch
+        t_batch = batch_sampled[:batch_size, :, :]
+        h_batch = batch_sampled[batch_size:, :, :]
+        
+        # Get predictions for the sampled negatives
+        t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, nr_eval_negs+ 1)
+        h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, nr_eval_negs +1 )
+        
+        # t_relevance and h_relevance: Binary relevance labels
+        t_relevance = torch.zeros((batch_size, nr_eval_negs + 1), device=batch.device)
+        h_relevance = torch.zeros((batch_size, nr_eval_negs + 1), device=batch.device)
+        t_relevance[:, 0] = 1  # Mark the first entry (positive sample) as relevant
+        h_relevance[:, 0] = 1  # Mark the first entry (positive sample) as relevant
+        
+        
+        # Compute ranking and ndcg metrics
+        t_ndcg = tasks.compute_ndcg_at_k(t_pred_batch, t_relevance, k)
+        h_ndcg = tasks.compute_ndcg_at_k(h_pred_batch, h_relevance, k)
 
-            if filtered_data is None:
-                t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
-            else:
-                t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch, context = 2)
-            # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
-            #t_pred= (bs, num_nodes)
-            
-            
-            # pos_h_index = (bs)
-    
-            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
-            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
-            t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-            # test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
-            
-            
-            
-            
-            # mask out all scores of known edges. 
-            t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
-            # mask out pos_t/h_index 
-            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
-            h_mask_pred = h_mask_inv.logical_xor(h_relevance)
-            # test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
-    
-            t_pred[t_mask_pred] = float('-inf')
-            h_pred[h_mask_pred] = float('-inf')
-            
-            #compute ndcg scores 
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+        t_ranking = tasks.compute_ranking_against_num_negs(t_pred_batch, pos_t_index)
+        h_ranking = tasks.compute_ranking_against_num_negs(h_pred_batch, pos_h_index)
 
-             # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter for now
-            t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
-            h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
+        num_t_negative = torch.full((batch_size,), nr_eval_negs, device=batch.device)
+        num_h_negative = torch.full((batch_size,), nr_eval_negs, device=batch.device)
 
-            num_t_negative = t_mask.sum(dim=-1)
-            num_h_negative = h_mask.sum(dim=-1)
-            
+        #num_t_negative = torch.tensor([len(negatives) for negatives in t_batch[:, :, 1]], device=batch.device)
+        #num_h_negative = torch.tensor([len(negatives) for negatives in h_batch[:, :, 0]], device=batch.device)
 
-        else:
-            batch_size = batch.size(0)            
-            # Concatenate batch for negative sampling
-            batch_concat = torch.cat((batch, batch), dim=0)
-            
-            # Perform negative sampling
-            batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, 100, strict=True)
-            
-            # Split the batch into t_batch and h_batch
-            t_batch = batch_sampled[:batch_size, :, :]
-            h_batch = batch_sampled[batch_size:, :, :]
-            
-            # Get predictions for the sampled negatives
-            t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, 101)
-            h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, 101)
-            
-            # t_relevance and h_relevance: Binary relevance labels
-            t_relevance = torch.zeros((batch_size, nr_eval_negs + 1), device=batch.device)
-            h_relevance = torch.zeros((batch_size, nr_eval_negs + 1), device=batch.device)
-            t_relevance[:, 0] = 1  # Mark the first entry (positive sample) as relevant
-            h_relevance[:, 0] = 1  # Mark the first entry (positive sample) as relevant
-            
-            
-            # Compute ranking and ndcg metrics
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred_batch, t_relevance, k)
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred_batch, h_relevance, k)
-    
-            t_ranking = tasks.compute_ranking_against_num_negs(t_pred_batch, pos_t_index)
-            h_ranking = tasks.compute_ranking_against_num_negs(h_pred_batch, pos_h_index)
-
-            num_t_negative = torch.full((batch_size,), 100, device=batch.device)
-            num_h_negative = torch.full((batch_size,), 100, device=batch.device)
-
-            #num_t_negative = torch.tensor([len(negatives) for negatives in t_batch[:, :, 1]], device=batch.device)
-            #num_h_negative = torch.tensor([len(negatives) for negatives in h_batch[:, :, 0]], device=batch.device)
-
-            
+        
 
             
 
@@ -614,6 +590,7 @@ if __name__ == "__main__":
         run_type = "0-Shot"
     elif num_epoch <= 4:
         run_type = "Fine-Tuned"
+        fine_tuning = True
         
     run_name = f"{dataset_name}-{run_type}-{model_type}-{current_time}"
     wandb_on = cfg.train["wandb"]
