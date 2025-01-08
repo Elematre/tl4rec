@@ -9,16 +9,23 @@ from torch_geometric.nn.models import LightGCN
 
         
 class Gru_Ultra(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, ultra_ref = None):
         # kept that because super Ultra sounds cool
         super(Gru_Ultra, self).__init__()
         
-        # MLP's for projecting the feature dims
+        # Dataset-specific projection layers
         self.user_projection =  MLP(cfg.user_projection)
         self.item_projection =  MLP(cfg.item_projection)
+
+        # Shared backbone
+        if ultra_ref is not None:
+            self.ultra = ultra_ref
+        else:
+            backbone_model_cfg = cfg.backbone_model
+            self.ultra = Ultra(backbone_model_cfg.simple_model, backbone_model_cfg.embedding_user, backbone_model_cfg.embedding_item)
+            
         
-        backbone_model_cfg = cfg.backbone_model
-        self.ultra = Ultra(backbone_model_cfg.simple_model, backbone_model_cfg.embedding_user, backbone_model_cfg.embedding_item)
+        
 
         
     def forward(self, data, batch):

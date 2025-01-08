@@ -18,7 +18,7 @@ from torch_geometric.data import Data
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
-from ultra.models import Ultra
+from ultra.models import Gru_Ultra, Ultra
 
 
 separator = ">" * 30
@@ -39,14 +39,29 @@ def multigraph_collator(batch, train_graphs):
     return graph, batch
 
 # here we assume that train_data and valid_data are tuples of datasets
-def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
+def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
 
     if cfg.train.num_epoch == 0:
         return
 
     world_size = util.get_world_size()
     rank = util.get_rank()
+    wandb_on = cfg.train["wandb"]
+    optimizers = []
+    parallel_models = []
 
+    optimizer_cls_name = cfg.optimizer.pop("class")
+    optimizer_cls = getattr(optim, optimizer_cls_name)
+    for model in models:
+        optimizers.append(optimizer_cls(model.parameters(), **cfg.optimizer))
+
+        model.to(device)
+        if world_size > 1:
+            parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
+        else:
+            parallel_model = parallel_models.append(model)
+    # Prepare graph-to-model mapping for efficient lookup       
+    graph_to_model_map = {id(dataset): idx for idx, dataset in enumerate(train_data)}
     train_triplets = torch.cat([
         torch.cat([g.target_edge_index, g.target_edge_type.unsqueeze(0)]).t()
         for g in train_data
@@ -56,16 +71,14 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
     batch_per_epoch = batch_per_epoch or len(train_loader)
 
-    cls = cfg.optimizer.pop("class")
-    optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
+    
+
+    
     num_params = sum(p.numel() for p in model.parameters())
     logger.warning(line)
     logger.warning(f"Number of parameters: {num_params}")
 
-    if world_size > 1:
-        parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
-    else:
-        parallel_model = model
+    
 
     step = math.ceil(cfg.train.num_epoch / 10)
     best_result = float("-inf")
@@ -73,7 +86,11 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
     batch_id = 0
     for i in range(0, cfg.train.num_epoch, step):
-        parallel_model.train()
+
+        # redundant according to gptito
+        #for parallel_model in parallel_models:
+         #   parallel_model.train()
+            
         for epoch in range(i, min(cfg.train.num_epoch, i + step)):
             if util.get_rank() == 0:
                 logger.warning(separator)
@@ -84,6 +101,11 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
             for batch in islice(train_loader, batch_per_epoch):
                 # now at each step we sample a new graph and edges from it
                 train_graph, batch = batch
+                # based on the train_graph choose the appropriate model and optimizer
+                graph_idx = graph_to_model_map[id(train_graph)]
+                parallel_model = parallel_models[graph_idx]
+                optimizer = optimizers[graph_idx]
+                
                 batch = tasks.negative_sampling(train_graph, batch, cfg.task.num_negative,
                                                 strict=cfg.task.strict_negative)
                 pred = parallel_model(train_graph, batch)
@@ -106,6 +128,9 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
                     logger.warning("binary cross entropy: %g" % loss)
+                    if wandb_on:
+                        wandb.log({f"training/loss_per_model/{graph_idx}": loss})
+                        wandb.log({"training/loss_universal": loss})
                 losses.append(loss.item())
                 batch_id += 1
 
@@ -120,8 +145,8 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         if rank == 0:
             logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
             state = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict()
+                "model": models[0].ultra.state_dict(),
+                "optimizer": optimizers[0].state_dict()  
             }
             torch.save(state, "model_epoch_%d.pth" % epoch)
         util.synchronize()
@@ -129,16 +154,19 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
-        result = test(cfg, model, valid_data, filtered_data=filtered_data, context = 0)
+        result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
         if result > best_result:
             best_result = result
             best_epoch = epoch
 
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
-    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)    
-    model.load_state_dict(state["model"])
+    state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
+
+    for model in models:  
+        model.ultra.load_state_dict(state["model"])
     util.synchronize()
+    
     # save the final model state
     if rank == 0:
         # Extract the last 6 letters of each dataset name
@@ -162,7 +190,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
 
 @torch.no_grad()
-def test(cfg, model, test_data, filtered_data=None, context = 0):
+def test(cfg, models, test_data, filtered_data=None, context = 0):
     # context is used for determining the calling context of test (train, valid, test)
     
     k = 20
@@ -174,8 +202,7 @@ def test(cfg, model, test_data, filtered_data=None, context = 0):
     # process sequentially
     all_metrics = []
     dataset_nr = 0
-    for test_graph, filters in zip(test_data, filtered_data):
-        
+    for model, test_graph, filters in zip(models, test_data, filtered_data):
         num_users = test_graph.num_users
         test_triplets = torch.cat([test_graph.target_edge_index, test_graph.target_edge_type.unsqueeze(0)]).t()
         sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
@@ -340,26 +367,26 @@ if __name__ == "__main__":
         #print (td)
     
 
-    # init Ultra
-    rel_model_cfg= cfg.model.relation_model
-    entity_model_cfg= cfg.model.entity_model
-    embedding_user_cfg = cfg.model.embedding_user
-    embedding_item_cfg = cfg.model.embedding_item
-    # assuming the entity model has the same dimensions in every layer
-    entity_model_cfg["relation_input_dim"] = rel_model_cfg["input_dim"]
-    # adding the input_dims of the mlp
-    print (f"train_data.x_user.size(1): {train_data[0].x_user.size(1)}")
-    embedding_user_cfg["input_dim"] = train_data[0].x_user.size(1)
-    embedding_item_cfg["input_dim"] = train_data[0].x_item.size(1)
-    model = Ultra(
-        simple_model_cfg= cfg.model.simple_model,
-        embedding_user_cfg = embedding_user_cfg,
-        embedding_item_cfg = embedding_item_cfg
-    )
-
+    # initialize the list of Gru-Models sharing the backbone Model
+    
+    # Shared Ultra backbone
+    backbone_cfg = cfg.model.backbone_model
+    ultra_ref = Ultra(backbone_cfg.simple_model, backbone_cfg.embedding_user, backbone_cfg.embedding_item)
+    
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")
-        model.load_state_dict(state["model"])
+        ultra_ref.load_state_dict(state["model"])
+
+    
+    # Create a Gru_Ultra model for each dataset
+    models = []
+    for td in train_data:
+        model_cfg = copy.deepcopy(cfg.model)
+        model_cfg.user_projection["input_dim"] = td.x_user.size(1)
+        model_cfg.item_projection["input_dim"] = td.x_item.size(1)
+        models.append(Gru_Ultra(model_cfg, ultra_ref))
+
+   
 
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     run_name = f"pretrain-{current_time}"
@@ -367,10 +394,11 @@ if __name__ == "__main__":
     if wandb_on:
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
-
-    model = model.to(device)
-    if wandb_on:
-        wandb.watch(model, log= None)
+        
+   # I avoid this for now 
+    #model = model.to(device)
+    #if wandb_on:
+        #wandb.watch(model, log= None)
     
     
     assert task_name == "MultiGraphPretraining", "Only the MultiGraphPretraining task is allowed for this script"
@@ -387,13 +415,13 @@ if __name__ == "__main__":
         for trg, valg, testg in zip(train_data, valid_data, test_data)
     ]
 
-    train_and_validate(cfg, model, train_data, valid_data if "fast_test" not in cfg.train else short_valid, filtered_data=filtered_data, batch_per_epoch=cfg.train.batch_per_epoch)
+    train_and_validate(cfg, models, train_data, valid_data if "fast_test" not in cfg.train else short_valid, filtered_data=filtered_data, batch_per_epoch=cfg.train.batch_per_epoch)
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on valid")
-    test(cfg, model, valid_data, filtered_data=filtered_data, context = 1)
+    test(cfg, models, valid_data, filtered_data=filtered_data, context = 1)
   
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")
-    test(cfg, model, test_data, filtered_data=filtered_data, context = 2)
+    test(cfg, models, test_data, filtered_data=filtered_data, context = 2)

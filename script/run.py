@@ -626,6 +626,7 @@ if __name__ == "__main__":
     device = util.get_device(cfg)
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
+    # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
     print (f"x_user.shape = {train_data.x_user.shape}")
     print (f"x_item.shape = {train_data.x_item.shape}")
@@ -659,7 +660,18 @@ if __name__ == "__main__":
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
-        model.load_state_dict(state["model"])
+        model.ultra.load_state_dict(state["model"])
+        # initialize linear weights:
+        def weights_init(m):
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+        
+        # Apply the weight initialization
+        model.user_projection.apply(weights_init)
+        model.item_projection.apply(weights_init)
+    
 
     #model = pyg.compile(model, dynamic=True)
     model = model.to(device)

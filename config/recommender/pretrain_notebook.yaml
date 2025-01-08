@@ -6,36 +6,25 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 model:
-  class: Ultra
-  relation_model:
-    class: RelNBFNet
-    input_dim: 8
-    hidden_dims: [8, 8]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  entity_model:
-    class: EntityNBFNet
-    input_dim: 32
-    hidden_dims: [32, 32, 32, 32, 32]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  simple_model:
-    class: SimpleNBFNet
-    input_dim: 40
-    hidden_dims: [40, 40, 40, 40]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-    # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
-  embedding_user:
-    hidden_dims: [32, 32]
-  embedding_item:
-    hidden_dims: [32, 32]
+  class: Gru-Ultra
+  user_projection:
+   hidden_dims: [32]
+  item_projection: 
+   hidden_dims: [32]
+  backbone_model:
+    simple_model:
+      class: SimpleNBFNet
+      input_dim: 40
+      hidden_dims: [40, 40,40, 40]
+      message_func: distmult
+      aggregate_func: sum
+      short_cut: yes
+      layer_norm: yes
+      # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
+    embedding_user:
+      hidden_dims: [32, 32]
+    embedding_item:
+      hidden_dims: [32, 32]
 
 task:
   name: MultiGraphPretraining
@@ -53,7 +42,7 @@ train:
   batch_size: 4
   num_epoch: 1
   log_interval: 800
-  batch_per_epoch: 10
+  batch_per_epoch: 10000
   fast_test: 500
   wandb: yes
   #logger: wandb

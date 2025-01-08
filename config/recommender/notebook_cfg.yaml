@@ -10,23 +10,23 @@ dataset:
 model:
   class: Gru-Ultra
   user_projection:
-   hidden_dims: [64]
+   hidden_dims: [32]
   item_projection: 
-   hidden_dims: [64]
+   hidden_dims: [32]
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 64
-      hidden_dims: [64, 64,64, 64]
+      input_dim: 40
+      hidden_dims: [40, 40,40, 40]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
       layer_norm: yes
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
     embedding_user:
-      hidden_dims: [64, 64]
+      hidden_dims: [32, 32]
     embedding_item:
-      hidden_dims: [64, 64]
+      hidden_dims: [32, 32]
     
 
 
