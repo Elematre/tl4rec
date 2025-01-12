@@ -74,7 +74,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         parallel_model.train()
         for epoch in range(i, min(cfg.train.num_epoch, i + step)):
             # check if we should fine tune_further
-            if fine_tuning and epoch >= num_freezes:
+            if fine_tuning and epoch == num_freezes:
                 util.synchronize()
                 print ("unfreeze my backbone")
                 util.unfreeze_backbone(model)
@@ -173,7 +173,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             result_dict = {}
             result_dict["ndcg@20"] = 1
         else:
-            result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
             for metric, score in result_dict.items():
@@ -194,6 +195,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     util.synchronize()
 
 @torch.no_grad()
+    
 # optimized method only evaluates against 100 samples. 
 # Does not give the exact same result but reasonable close as test with nr_neg_eval = 100 but I reckon this is due to non-determinsim of some methods.
 def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
@@ -583,7 +585,6 @@ if __name__ == "__main__":
         nr_eval_negs = 100
         k = 10
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    model_type = cfg.train['model_type']
     run_type = "End-to-End"
     num_epoch = cfg.train.num_epoch
     if num_epoch == 0:
@@ -592,7 +593,7 @@ if __name__ == "__main__":
         run_type = "Fine-Tuned"
         fine_tuning = True
         
-    run_name = f"{dataset_name}-{run_type}-{model_type}-{current_time}"
+    run_name = f"{dataset_name}-{run_type}-{current_time}"
     wandb_on = cfg.train["wandb"]
     if wandb_on:
         wandb.init(
@@ -615,18 +616,15 @@ if __name__ == "__main__":
     # entity_model needs to know the dimensions of the relation model
     
     
+
+    # adding the input_dims for the projection mlp's
+    cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
+    cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
     
-    if model_type == "Ultra":
-        print("We are using Gru_Ultra")
-        # adding the input_dims for the projection mlp's
-        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
-        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
-        
-        model = Gru_Ultra(
-            cfg = cfg.model
-        )
-    else:
-        model = My_LightGCN(train_data.num_nodes)
+    model = Gru_Ultra(
+        cfg = cfg.model)
+
+    #model = My_LightGCN(train_data.num_nodes)
     
     #model = Ultra(
     #    rel_model_cfg= rel_model_cfg,

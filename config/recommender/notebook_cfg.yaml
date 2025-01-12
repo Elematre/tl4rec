@@ -9,6 +9,7 @@ dataset:
 
 model:
   class: Gru-Ultra
+  node_features: no
   user_projection:
    hidden_dims: [32]
   item_projection: 
@@ -43,7 +44,6 @@ optimizer:
   lr:  0.005
 
 train:
-  model_type: Ultra  # Options: Ultra, LightGCN
   gpus: [{{ gpus }}]
   batch_size: 8
   num_epoch: {{ epochs }}

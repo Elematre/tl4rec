@@ -47,21 +47,34 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     world_size = util.get_world_size()
     rank = util.get_rank()
     wandb_on = cfg.train["wandb"]
-    optimizers = []
     parallel_models = []
+    # Combine parameters from all models
+    all_params = []
 
-    optimizer_cls_name = cfg.optimizer.pop("class")
-    optimizer_cls = getattr(optim, optimizer_cls_name)
-    for model in models:
-        optimizers.append(optimizer_cls(model.parameters(), **cfg.optimizer))
-
+    
+    for i, model in enumerate(models):
         model.to(device)
+        if i == 0:
+            all_params.extend(model.ultra.parameters())
+    
+        # Add model-specific parameters
+        all_params.extend(model.user_projection.parameters())
+        all_params.extend(model.item_projection.parameters())
+    
+        # Wrap model in DistributedDataParallel if needed
         if world_size > 1:
             parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
         else:
-            parallel_model = parallel_models.append(model)
+            parallel_models.append(model)
+
+    # Initialize a single optimizer with unique parameters
+    optimizer_cls_name = cfg.optimizer.pop("class")
+    optimizer_cls = getattr(optim, optimizer_cls_name)
+    optimizer = optimizer_cls(all_params, **cfg.optimizer)
+
     # Prepare graph-to-model mapping for efficient lookup       
     graph_to_model_map = {id(dataset): idx for idx, dataset in enumerate(train_data)}
+    
     train_triplets = torch.cat([
         torch.cat([g.target_edge_index, g.target_edge_type.unsqueeze(0)]).t()
         for g in train_data
@@ -73,8 +86,7 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
 
     
 
-    
-    num_params = sum(p.numel() for p in model.parameters())
+    num_params = sum(p.numel() for p in all_params)
     logger.warning(line)
     logger.warning(f"Number of parameters: {num_params}")
 
@@ -85,6 +97,9 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     best_epoch = -1
 
     batch_id = 0
+    
+
+
     for i in range(0, cfg.train.num_epoch, step):
 
         # redundant according to gptito
@@ -104,7 +119,6 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
                 # based on the train_graph choose the appropriate model and optimizer
                 graph_idx = graph_to_model_map[id(train_graph)]
                 parallel_model = parallel_models[graph_idx]
-                optimizer = optimizers[graph_idx]
                 
                 batch = tasks.negative_sampling(train_graph, batch, cfg.task.num_negative,
                                                 strict=cfg.task.strict_negative)
@@ -122,15 +136,34 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
                 loss = loss.mean()
 
                 loss.backward()
+
+                # Log gradient norms
+                if wandb_on:
+                    for name, param in parallel_model.named_parameters():
+                        if param.grad is not None:
+                            grad_norm = param.grad.norm().item()
+                            wandb.log({f"gradients/{name}": grad_norm})
+                            
                 optimizer.step()
                 optimizer.zero_grad()
+
+               
 
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
                     logger.warning("binary cross entropy: %g" % loss)
                     if wandb_on:
-                        wandb.log({f"training/loss_per_model/{graph_idx}": loss})
-                        wandb.log({"training/loss_universal": loss})
+                         # Positive and negative scores
+                        pos_scores = pred[:, 0].detach()
+                        neg_scores = pred[:, 1:].detach()
+                        avg_pos_score = pos_scores.mean().item()
+                        avg_neg_score = neg_scores.mean().item()
+                        wandb.log({f"training/loss_per_model/{graph_idx}": loss.item(),
+                                    "training/loss_universal": loss.item(),
+                                    f"training/avg_pos_score/{graph_idx}": avg_pos_score,
+                                    f"training/avg_neg_score/{graph_idx}": avg_neg_score})
+
+
                 losses.append(loss.item())
                 batch_id += 1
 
@@ -146,7 +179,7 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
             logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
             state = {
                 "model": models[0].ultra.state_dict(),
-                "optimizer": optimizers[0].state_dict()  
+                "optimizer": optimizer.state_dict()  
             }
             torch.save(state, "model_epoch_%d.pth" % epoch)
         util.synchronize()
@@ -370,8 +403,7 @@ if __name__ == "__main__":
     # initialize the list of Gru-Models sharing the backbone Model
     
     # Shared Ultra backbone
-    backbone_cfg = cfg.model.backbone_model
-    ultra_ref = Ultra(backbone_cfg.simple_model, backbone_cfg.embedding_user, backbone_cfg.embedding_item)
+    ultra_ref = Ultra(cfg.model)
     
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")

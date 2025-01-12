@@ -8,36 +8,26 @@ dataset:
 model_type: Ultra  # Options: Ultra, LightGCN
 
 model:
-  class: Ultra
-  relation_model:
-    class: RelNBFNet
-    input_dim: 8
-    hidden_dims: [8, 8]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  entity_model:
-    class: EntityNBFNet
-    input_dim: 32
-    hidden_dims: [32, 32, 32, 32, 32]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-  simple_model:
-    class: SimpleNBFNet
-    input_dim: 40
-    hidden_dims: [40, 40, 40, 40]
-    message_func: distmult
-    aggregate_func: sum
-    short_cut: yes
-    layer_norm: yes
-    # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
-  embedding_user:
-    hidden_dims: [32, 32]
-  embedding_item:
-    hidden_dims: [32, 32]
+  class: Gru-Ultra
+  node_features: no
+  user_projection:
+   hidden_dims: [32]
+  item_projection: 
+   hidden_dims: [32]
+  backbone_model:
+    simple_model:
+      class: SimpleNBFNet
+      input_dim: 40
+      hidden_dims: [40, 40,40, 40]
+      message_func: distmult
+      aggregate_func: sum
+      short_cut: yes
+      layer_norm: yes
+      # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
+    embedding_user:
+      hidden_dims: [32, 32]
+    embedding_item:
+      hidden_dims: [32, 32]
     
 
 
@@ -59,12 +49,15 @@ train:
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
-  loss: bce #options bpr, bce 
+  loss: bce # Options: Bpr, bce
   target_metric: ndcg@20
   wandb: yes
   gradient_clip: no
   init_linear_weights: no
   num_evals: 10
+  # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 8
+  fine_tuning:
+    num_epoch_proj: 1
 
 checkpoint: {{ ckpt }}

@@ -19,6 +19,7 @@ import json
 import difflib
 import pandas as pd
 import json
+import random
 import difflib
 import re
 
@@ -1067,6 +1068,75 @@ class Yelp18(InMemoryDataset):
         # Save processed data
         torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
         print("yeiy it worked")
+
+
+class Yelp18_small(InMemoryDataset):
+    """
+    Yelp18_small Dataset that samples 10% of the target edges for train, valid, and test datasets.
+    After sampling train target edges, it creates undirected edges for shared edge_index.
+    """
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def processed_dir(self):
+        return os.path.join(self.root, "yelp18_small", "processed")
+
+    @property
+    def processed_file_names(self):
+        return "data.pt"
+
+    def process(self):
+        # Load the full Yelp18 dataset
+        full_dataset_path = os.path.join(self.root, "yelp18", "processed", "data.pt")
+        full_data = Yelp18(root=self.root)
+    
+        # Ensure full_data contains three datasets
+        if len(full_data) != 3:
+            raise ValueError(f"Expected full_data to contain 3 components, but got {len(full_data)}.")
+        train_data, valid_data, test_data = full_data
+
+        # Sample 10% of target edges for train_data
+        def sample_target_edges(data, sample_ratio=0.1):
+            num_target_edges = data.target_edge_index.size(1)
+            sampled_indices = random.sample(range(num_target_edges), int(num_target_edges * sample_ratio))
+
+            # Retain sampled target edges and their attributes
+            data.target_edge_index = data.target_edge_index[:, sampled_indices]
+            data.target_edge_type = data.target_edge_type[sampled_indices]
+            data.target_edge_attr = data.target_edge_attr[sampled_indices]
+            return data
+
+        # Sample target edges for train_data
+        train_data = sample_target_edges(train_data)
+
+        # Create undirected version of target_edge_index for shared edge_index
+        def make_undirected(data):
+            target_edges = data.target_edge_index
+            undirected_edges = torch.cat([target_edges, target_edges.flip(0)], dim=1)
+            data.edge_index = undirected_edges
+            data.edge_type = torch.cat([data.target_edge_type, data.target_edge_type], dim=0)
+            data.edge_attr = torch.cat([data.target_edge_attr, data.target_edge_attr], dim=0)
+            return data
+
+        # Make undirected edge_index for train_data
+        train_data = make_undirected(train_data)
+
+        # Ensure consistent edge_index across all splits (train/valid/test)
+        for data in [valid_data, test_data]:
+            data.edge_index = train_data.edge_index
+            data.edge_type = train_data.edge_type
+            data.edge_attr = train_data.edge_attr
+
+        # Sample target edges for valid_data and test_data
+        valid_data = sample_target_edges(valid_data)
+        test_data = sample_target_edges(test_data)
+
+        # Save processed data
+        torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+        print("Processed Yelp18_small dataset with consistent edge_index and 10% of target edges.")
+
 
 
 class GrailInductiveDataset(InMemoryDataset):

@@ -13,24 +13,35 @@ class Gru_Ultra(nn.Module):
         # kept that because super Ultra sounds cool
         super(Gru_Ultra, self).__init__()
         
-        # Dataset-specific projection layers
-        self.user_projection =  MLP(cfg.user_projection)
-        self.item_projection =  MLP(cfg.item_projection)
-
+        # Dataset-specific projection layerscfg.backbone_model
+        self.node_features = cfg["node_features"]
+        if self.node_features:
+            self.user_projection =  MLP(cfg.user_projection)
+            self.item_projection =  MLP(cfg.item_projection)
+        else:
+            self.hidden_dim = cfg.user_projection["hidden_dims"][0]
         # Shared backbone
         if ultra_ref is not None:
             self.ultra = ultra_ref
         else:
-            backbone_model_cfg = cfg.backbone_model
-            self.ultra = Ultra(backbone_model_cfg.simple_model, backbone_model_cfg.embedding_user, backbone_model_cfg.embedding_item)
+            self.ultra = Ultra(cfg)
             
         
         
 
         
     def forward(self, data, batch):
-        user_projection= self.user_projection(data.x_user)
-        item_projection= self.item_projection(data.x_item)
+        num_users = data.num_users
+        num_items = data.num_items
+        
+        if self.node_features:
+            user_projection= self.user_projection(data.x_user)
+            item_projection= self.item_projection(data.x_item)
+
+        else:
+            user_projection = torch.zeros(num_users, self.hidden_dim, device = batch.device)
+            item_projection = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+        
         score = self.ultra(data, batch, user_projection, item_projection)
         # what does score look like? score (batch_size, 1 + num negatives)
         
@@ -38,34 +49,39 @@ class Gru_Ultra(nn.Module):
     
 class Ultra(nn.Module):
 
-    def __init__(self, simple_model_cfg, embedding_user_cfg, embedding_item_cfg):
+    def __init__(self, cfg):
         # kept that because super Ultra sounds cool
         super(Ultra, self).__init__()
         # MLP's for obtaining item/user emb.
-        self.item_mlp = MLP(embedding_item_cfg)
-        self.user_mlp = MLP(embedding_user_cfg)
-        
-        #self.hidden_dim = embedding_user_cfg["hidden_dims"][0]
+        self.node_features = cfg["node_features"]
+        if self.node_features:
+            self.item_mlp = MLP(cfg.backbone_model.embedding_item)
+            self.user_mlp = MLP(cfg.backbone_model.embedding_user)
+        else:   
+            self.hidden_dim = cfg.backbone_model.embedding_item["hidden_dims"][0]
         
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
         # rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
         # **rel_model_cfg contains dict of cfg file
+        simple_model_cfg= cfg.backbone_model.simple_model
         self.simple_model = globals()[simple_model_cfg.pop('class')](**simple_model_cfg)
 
         
     def forward(self, data, batch, user_projection, item_projection):
         # calculate embeddings
         
-        #num_users = data.num_users
-        #num_items = data.num_items
-        #user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
-        #item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
-
-        user_embedding = self.user_mlp(user_projection)  # shape: (num_users, 16)
-        item_embedding = self.item_mlp(item_projection)
+        num_users = data.num_users
+        num_items = data.num_items
+        if self.node_features:    
+            user_embedding = self.user_mlp(user_projection)  # shape: (num_users, 16)
+            item_embedding = self.item_mlp(item_projection)
+        else:
+            user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
+            item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+        
         score = self.simple_model(data, batch, user_embedding, item_embedding)
-        # what does score look like? score (batch_size, 1 + num negatives)
+        # score (batch_size, 1 + num negatives)
         
         return score
 
