@@ -54,8 +54,8 @@ cd ${DIRECTORY}
 
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
 
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Yelp18 --epochs 5 --bpe 50000 --gpus "[0]" --ckpt null
-#python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
+#python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Yelp18 --epochs 5 --bpe 50000 --gpus "[0]" --ckpt null
+python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 0 --bpe 50000 --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/model_epoch_10.pth 
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"

@@ -5,11 +5,12 @@ import torch.nn.functional as F
 from . import tasks, layers
 from ultra.base_nbfnet import BaseNBFNet
 from torch_geometric.nn.models import LightGCN
+from ultra import util
 
 
         
 class Gru_Ultra(nn.Module):
-    def __init__(self, cfg, ultra_ref = None):
+    def __init__(self, cfg, ultra_ref = None, log = False):
         # kept that because super Ultra sounds cool
         super(Gru_Ultra, self).__init__()
         
@@ -24,11 +25,8 @@ class Gru_Ultra(nn.Module):
         if ultra_ref is not None:
             self.ultra = ultra_ref
         else:
-            self.ultra = Ultra(cfg)
-            
-        
-        
-
+            self.ultra = Ultra(cfg, wandb_logger)
+        self.log = log
         
     def forward(self, data, batch):
         num_users = data.num_users
@@ -37,6 +35,8 @@ class Gru_Ultra(nn.Module):
         if self.node_features:
             user_projection= self.user_projection(data.x_user)
             item_projection= self.item_projection(data.x_item)
+            if self.log:
+                util.log_node_features(user_projection,item_projection, "projection")
 
         else:
             user_projection = torch.zeros(num_users, self.hidden_dim, device = batch.device)
@@ -49,7 +49,7 @@ class Gru_Ultra(nn.Module):
     
 class Ultra(nn.Module):
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, log = False):
         # kept that because super Ultra sounds cool
         super(Ultra, self).__init__()
         # MLP's for obtaining item/user emb.
@@ -59,7 +59,8 @@ class Ultra(nn.Module):
             self.user_mlp = MLP(cfg.backbone_model.embedding_user)
         else:   
             self.hidden_dim = cfg.backbone_model.embedding_item["hidden_dims"][0]
-        
+            
+        self.log = log
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
         # rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
@@ -76,6 +77,8 @@ class Ultra(nn.Module):
         if self.node_features:    
             user_embedding = self.user_mlp(user_projection)  # shape: (num_users, 16)
             item_embedding = self.item_mlp(item_projection)
+            if self.log:
+                util.log_node_features(user_embedding,item_embedding, "embedding")
         else:
             user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
@@ -238,32 +241,35 @@ class SimpleNBFNet(BaseNBFNet):
         score = self.mlp(feature).squeeze(-1)
         return score.view(shape)
     
-# Define a standart MLP class
+# Define a standard MLP class
 class MLP(nn.Module):
     def __init__(self, cfg):
         super(MLP, self).__init__()
-        
+
         hidden_dims = cfg["hidden_dims"]
         layers = []
         in_dim = hidden_dims[0]
         if 'input_dim' in cfg.keys():
              in_dim = cfg['input_dim']
-            
+
+        use_dropout = cfg["use_dropout"]
+        dropout_rate = cfg["dropout_rate"]
+        use_layer_norm = cfg["use_layer_norm"]
+
         for h_dim in hidden_dims:
             layers.append(nn.Linear(in_dim, h_dim))
+            if use_layer_norm:
+                layers.append(nn.LayerNorm(h_dim))  # Add LayerNorm
+            layers.append(nn.ReLU())  # Add ReLU activation
+            if use_dropout:
+                layers.append(nn.Dropout(dropout_rate))  # Add Dropout if enabled
             in_dim = h_dim  # Update input dimension for the next layer
-        
-        
+
         # Store layers in a ModuleList for registration and forward pass
-        self.layers = nn.ModuleList(layers)
+        self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
-        # Apply each layer with ReLU, except the final layer
-        for i, layer in enumerate(self.layers):
-            x = layer(x)
-            if i < len(self.layers) - 1:  # Skip ReLU on the last layer
-                x = F.relu(x)
-        return x
+        return self.layers(x)
 
 class My_LightGCN(nn.Module):
     def __init__(self, num_nodes):

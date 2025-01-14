@@ -9,7 +9,7 @@ model_type: Ultra  # Options: Ultra, LightGCN
 
 model:
   class: Gru-Ultra
-  node_features: no
+  node_features: yes
   user_projection:
    hidden_dims: [32]
   item_projection: 

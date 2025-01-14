@@ -50,27 +50,32 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     parallel_models = []
     # Combine parameters from all models
     all_params = []
-
+    param_groups = []
     
     for i, model in enumerate(models):
         model.to(device)
         if i == 0:
-            all_params.extend(model.ultra.parameters())
+            # Add backbone convolution parameters for the first model
+            param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
+            param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
+            param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
     
-        # Add model-specific parameters
-        all_params.extend(model.user_projection.parameters())
-        all_params.extend(model.item_projection.parameters())
+        if cfg.model["node_features"]:
+            # Add projection MLP parameters for each model
+            param_groups.append({"params": model.user_projection.parameters(), "lr": cfg.optimizer["projection_user_lr"]})
+            param_groups.append({"params": model.item_projection.parameters(), "lr": cfg.optimizer["projection_item_lr"]})
     
         # Wrap model in DistributedDataParallel if needed
         if world_size > 1:
             parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
         else:
             parallel_models.append(model)
-
-    # Initialize a single optimizer with unique parameters
+    
+    # Initialize a single optimizer with unique parameter groups
     optimizer_cls_name = cfg.optimizer.pop("class")
     optimizer_cls = getattr(optim, optimizer_cls_name)
-    optimizer = optimizer_cls(all_params, **cfg.optimizer)
+    optimizer = optimizer_cls(param_groups)
+    #optimizer = torch.optim.RMSprop(all_params, lr=1.0e-3, alpha=0.99)
 
     # Prepare graph-to-model mapping for efficient lookup       
     graph_to_model_map = {id(dataset): idx for idx, dataset in enumerate(train_data)}
@@ -158,10 +163,10 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
                         neg_scores = pred[:, 1:].detach()
                         avg_pos_score = pos_scores.mean().item()
                         avg_neg_score = neg_scores.mean().item()
-                        wandb.log({f"training/loss_per_model/{graph_idx}": loss.item(),
-                                    "training/loss_universal": loss.item(),
-                                    f"training/avg_pos_score/{graph_idx}": avg_pos_score,
-                                    f"training/avg_neg_score/{graph_idx}": avg_neg_score})
+                        wandb.log({f"debug/loss_per_model/{graph_idx}": loss.item(),
+                                    "debug/loss_universal": loss.item(),
+                                    f"debug/avg_pos_score/{graph_idx}": avg_pos_score,
+                                    f"debug/avg_neg_score/{graph_idx}": avg_neg_score})
 
 
                 losses.append(loss.item())
@@ -400,10 +405,22 @@ if __name__ == "__main__":
         #print (td)
     
 
-    # initialize the list of Gru-Models sharing the backbone Model
+
     
+    
+
+   
+
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    run_name = f"pretrain-{current_time}"
+    wandb_on = cfg.train["wandb"]
+    if wandb_on:
+        wandb.init(
+            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+
+    # initialize the list of Gru-Models sharing the backbone Model
     # Shared Ultra backbone
-    ultra_ref = Ultra(cfg.model)
+    ultra_ref = Ultra(cfg.model, wandb_on)
     
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")
@@ -416,16 +433,7 @@ if __name__ == "__main__":
         model_cfg = copy.deepcopy(cfg.model)
         model_cfg.user_projection["input_dim"] = td.x_user.size(1)
         model_cfg.item_projection["input_dim"] = td.x_item.size(1)
-        models.append(Gru_Ultra(model_cfg, ultra_ref))
-
-   
-
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"pretrain-{current_time}"
-    wandb_on = cfg.train["wandb"]
-    if wandb_on:
-        wandb.init(
-            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+        models.append(Gru_Ultra(model_cfg, ultra_ref, wandb_on))
         
    # I avoid this for now 
     #model = model.to(device)

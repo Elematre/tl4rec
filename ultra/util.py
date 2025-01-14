@@ -8,6 +8,7 @@ import argparse
 
 import yaml
 import jinja2
+import wandb
 from jinja2 import meta
 import easydict
 
@@ -21,6 +22,17 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def log_node_features(user_projection, item_projection, name):             
+            user_mean, user_var = user_projection.mean().item(), user_projection.var().item()
+            item_mean, item_var = item_projection.mean().item(), item_projection.var().item()
+            print ("hi im inside of log_node_features")
+            wandb.log({
+                f"debug/user_{name}_mean": user_mean,
+                f"debug/user_{name}_variance": user_var,
+                f"debug/item_{name}_mean": item_mean,
+                f"debug/item_{name}_variance": item_var
+            })
+                
 def freeze_backbone(model):
     for name, param in model.ultra.named_parameters():
         param.requires_grad = False

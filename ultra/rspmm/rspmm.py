@@ -12,6 +12,10 @@ class RSPMMAddMulFunction(autograd.Function):
 
     @staticmethod
     def forward(ctx, edge_index, edge_type, edge_weight, relation, input):
+        #print (f"relation.shape() : {relation.shape}")
+        #print (f"edge_index.shape() : {edge_index.shape}")
+        #print (f"edge_type.shape() : {edge_type.shape}")
+        #print (f"input.shape() : {input.shape}")
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"
@@ -90,6 +94,7 @@ class RSPMMAddAddFunction(autograd.Function):
 
     @staticmethod
     def forward(ctx, edge_index, edge_type, edge_weight, relation, input):
+        print ("hey we are using RSPMMAddAddFunction ")
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"
@@ -170,7 +175,6 @@ def generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="
         raise ValueError("No generalized rspmm implementation found for summation `%s` and multiplication `%s`"
                          % (sum, mul))
     Function = getattr(module, name)
-
     node_in, node_out = edge_index
     key = node_in * (node_out.max() + 1) + node_out
     order = key.argsort()
