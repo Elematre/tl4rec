@@ -7,27 +7,33 @@ from torch.utils import cpp_extension
 
 module = sys.modules[__name__]
 
-
+# This is the class we use with the current hyper parameters
 class RSPMMAddMulFunction(autograd.Function):
 
     @staticmethod
-    def forward(ctx, edge_index, edge_type, edge_weight, relation, input):
+    def forward(ctx, edge_index, edge_type, edge_weight, edge_attr, relation, input):
+        #print (f"edge_index.shape: {edge_index.shape}")
+        #print (f"edge_attr.shape: {edge_attr.shape}")
         #print (f"relation.shape() : {relation.shape}")
         #print (f"edge_index.shape() : {edge_index.shape}")
         #print (f"edge_type.shape() : {edge_type.shape}")
         #print (f"input.shape() : {input.shape}")
+        #raise ValueError("until here") 
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"
-
+        print(input.device.type)
         if input.device.type == "cuda":
             forward = rspmm.rspmm_add_mul_forward_cuda
         else:
             forward = rspmm.rspmm_add_mul_forward_cpu
-        output = forward(edge_index, edge_type, edge_weight, relation, input)
+        
+        output = forward(edge_index, edge_type, edge_weight, edge_attr, relation, input)
+        raise ValueError("until here") 
         ctx.save_for_backward(edge_index, edge_type, edge_weight, relation, input, output)
         return output
-
+        
+    # calculates gradient
     @staticmethod
     def backward(ctx, output_grad):
         if output_grad.device.type == "cuda":
@@ -169,17 +175,19 @@ class RSPMMMaxAddFunction(autograd.Function):
         return None, None, weight_grad, relation_grad, input_grad
 
 
-def generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="add", mul="mul"):
+def generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul="mul"):
     name = "RSPMM%s%sFunction" % (sum.capitalize(), mul.capitalize())
     if not hasattr(module, name):
         raise ValueError("No generalized rspmm implementation found for summation `%s` and multiplication `%s`"
                          % (sum, mul))
     Function = getattr(module, name)
+
+    # Create a unique key for every edge and sorts according to source and target node
     node_in, node_out = edge_index
     key = node_in * (node_out.max() + 1) + node_out
     order = key.argsort()
 
-    return Function.apply(edge_index[:, order], edge_type[order], edge_weight[order], relation, input)
+    return Function.apply(edge_index[:, order], edge_type[order], edge_weight[order], edge_attr [order, :], relation, input)
 
 
 def load_extension(name, sources, extra_cflags=None, extra_cuda_cflags=None, **kwargs):

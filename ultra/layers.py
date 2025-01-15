@@ -68,7 +68,6 @@ class GeneralizedRelationalConv(MessagePassing):
 
     def forward(self, input, query, boundary, edge_index, edge_type, edge_attr, size, edge_weight=None):
         batch_size = len(query)
-
         if self.dependent:
             # layer-specific relation features as a projection of input "query" (relation) embeddings
             relation = self.relation_linear(query).view(batch_size, self.num_relation, self.input_dim)
@@ -88,10 +87,12 @@ class GeneralizedRelationalConv(MessagePassing):
         # note that we send the initial boundary condition (node states at layer0) to the message passing
         # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf
         output = self.propagate(input=input, relation=relation, boundary=boundary, edge_index=edge_index,
-                                edge_type=edge_type, size=size, edge_weight=edge_weight)
+                                edge_type=edge_type, size=size, edge_weight=edge_weight, edge_attr = edge_attr)
         return output
 
     def propagate(self, edge_index, size=None, **kwargs):
+        
+       
         if kwargs["edge_weight"].requires_grad or self.message_func == "rotate":
             # the rspmm cuda kernel only works for TransE and DistMult message functions
             # otherwise we invoke separate message & aggregate functions
@@ -115,10 +116,12 @@ class GeneralizedRelationalConv(MessagePassing):
         col_fn = self.inspector.distribute if pyg_version[1] <= 4 else self.inspector.collect_param_data
 
         msg_aggr_kwargs = col_fn("message_and_aggregate", coll_dict)
+        
         for hook in self._message_and_aggregate_forward_pre_hooks.values():
             res = hook(self, (edge_index, msg_aggr_kwargs))
             if res is not None:
                 edge_index, msg_aggr_kwargs = res
+
         out = self.message_and_aggregate(edge_index, **msg_aggr_kwargs)
         for hook in self._message_and_aggregate_forward_hooks.values():
             res = hook(self, (edge_index, msg_aggr_kwargs), out)
@@ -185,11 +188,14 @@ class GeneralizedRelationalConv(MessagePassing):
 
         return output
 
-    def message_and_aggregate(self, edge_index, input, relation, boundary, edge_type, edge_weight, index, dim_size):
+    def message_and_aggregate(self, edge_index, input, relation, boundary, edge_type, edge_weight, edge_attr, index, dim_size):
+        
         # fused computation of message and aggregate steps with the custom rspmm cuda kernel
         # speed up computation by several times
         # reduce memory complexity from O(|E|d) to O(|V|d), so we can apply it to larger graphs
         from .rspmm import generalized_rspmm
+
+
 
         batch_size, num_node = input.shape[:2]
         input = input.transpose(0, 1).flatten(1)
@@ -202,15 +208,16 @@ class GeneralizedRelationalConv(MessagePassing):
         else:
             raise ValueError("Unknown message function `%s`" % self.message_func)
         if self.aggregate_func == "sum":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="add", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul=mul)
             update = update + boundary
         elif self.aggregate_func == "mean":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="add", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul=mul)
             update = (update + boundary) / degree_out
         elif self.aggregate_func == "max":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="max", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr,  relation, input, sum="max", mul=mul)
             update = torch.max(update, boundary)
         elif self.aggregate_func == "pna":
+            raise NotImplementedError
             # we use PNA with 4 aggregators (mean / max / min / std)
             # and 3 scalars (identity / log degree / reciprocal of log degree)
             sum = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="add", mul=mul)

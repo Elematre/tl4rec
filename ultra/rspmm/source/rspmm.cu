@@ -21,9 +21,10 @@ const int kThreadPerBlock = 256;
 template <class scalar_t, class NaryOp, class BinaryOp>
 __global__
 void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, const int64_t *layer_ind,
-                            const scalar_t *weight, const scalar_t *relation, const scalar_t *input,
+                            const scalar_t *weight, const scalar_t *edge_attr, 
+                            const scalar_t *relation, const scalar_t *input,
                             scalar_t *output,
-                            int64_t num_row, int64_t nnz, int64_t dim) {
+                            int64_t num_row, int64_t nnz, int64_t dim, int64_t edge_attr_dim) {
     // for best optimization, the following code is compiled with constant warpSize
     assert(blockDim.x == warpSize);
 
@@ -60,12 +61,19 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
             int64_t col = col_ind_buf[offset_ptr];
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
+
+            // Pointer to the edge attributes for this edge
+            const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
+
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
                 int64_t d = d_start + i * warpSize;
                 if (d >= dim)
                     break;
-                scalar_t x = BinaryOp::forward(relation[layer * dim + d], input[col * dim + d]);
+
+                 // Use edge_attr directly in the distmult computation
+                scalar_t edge_attr_value = attr_ptr[d % edge_attr_dim]; // Use modulo to map dim to edge_attr features
+                scalar_t x = BinaryOp::forward(edge_attr_value, input[col * dim + d]);
                 scalar_t y = w * x;
                 out[i] = NaryOp::forward(out[i], y);
             }
@@ -215,7 +223,7 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
 
 template <template<class> class NaryOp, template<class> class BinaryOp>
 Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_,
-                          const Tensor &relation_, const Tensor &input_) {
+                          const Tensor &edge_attr_, const Tensor &relation_, const Tensor &input_) {
     constexpr const char *fn_name = "rspmm_forward_cuda";
     TensorArg edge_index_arg(edge_index_, "edge_index", 1), edge_type_arg(edge_type_, "edge_type", 2),
               edge_weight_arg(edge_weight_, "edge_weight", 3), relation_arg(relation_, "relation", 4),
@@ -227,12 +235,14 @@ Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, c
     const Tensor edge_index = edge_index_.contiguous();
     const Tensor edge_type = edge_type_.contiguous();
     const Tensor edge_weight = edge_weight_.contiguous();
+    const Tensor edge_attr = edge_attr_.contiguous(); 
     const Tensor relation = relation_.contiguous();
     const Tensor input = input_.contiguous();
 
     int64_t nnz = edge_index.size(1);
     int64_t num_row = input.size(0);
     int64_t dim = input.size(1);
+    int64_t edge_attr_dim = edge_attr.size(1); 
     Tensor output = at::empty({num_row, dim}, input.options());
 
     Tensor row_ind = edge_index.select(0, 0);
@@ -256,10 +266,12 @@ Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, c
             col_ind.data_ptr<int64_t>(),
             layer_ind.data_ptr<int64_t>(),
             edge_weight.data_ptr<scalar_t>(),
+            edge_attr.data_ptr<scalar_t>(),
             relation.data_ptr<scalar_t>(),
             input.data_ptr<scalar_t>(),
             output.data_ptr<scalar_t>(),
-            num_row, nnz, dim
+            num_row, nnz, dim,
+            edge_attr_dim
         );
     });
 
@@ -353,8 +365,8 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
 #define DECLARE_FORWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
     Tensor rspmm_##ADD##_##MUL##_forward_cuda(                                                            \
             const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight,                 \
-            const Tensor &relation, const Tensor &input) {                                                \
-        return rspmm_forward_cuda<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, relation, input); \
+            const Tensor &edge_attr, const Tensor &relation, const Tensor &input) {                                                \
+        return rspmm_forward_cuda<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight,edge_attr,  relation, input); \
     }
 
 #define DECLARE_BACKWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \

@@ -74,6 +74,8 @@ class BaseNBFNet(nn.Module):
         data = copy.copy(data)
         data.edge_index = data.edge_index[:, mask]
         data.edge_type = data.edge_type[mask]
+        data.edge_attr = data.edge_attr[mask,:]
+        
         return data
 
     def negative_sample_to_tail(self, h_index, t_index, r_index, num_direct_rel, h_embeddings, t_embeddings):

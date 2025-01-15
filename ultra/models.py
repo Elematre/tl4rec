@@ -25,7 +25,7 @@ class Gru_Ultra(nn.Module):
         if ultra_ref is not None:
             self.ultra = ultra_ref
         else:
-            self.ultra = Ultra(cfg, wandb_logger)
+            self.ultra = Ultra(cfg, log)
         self.log = log
         
     def forward(self, data, batch):
@@ -119,7 +119,7 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, edge_attr, separate_grad=False):
+    def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
         user_embedding.to(device=h_index.device)
         item_embedding.to(device=h_index.device)
         h_embeddings.to(device=h_index.device)
@@ -168,7 +168,7 @@ class SimpleNBFNet(BaseNBFNet):
 
         for layer in self.layers:
             # Bellman-Ford iteration, we send the original boundary condition in addition to the updated node states
-            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, edge_attr,  size, edge_weight)
+            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, data.edge_attr,  size, edge_weight)
             if self.short_cut and hidden.shape == layer_input.shape:
                 # residual connection here
                 hidden = hidden + layer_input
@@ -231,7 +231,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings, edge_attr)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states
