@@ -7,7 +7,7 @@ dataset:
 
 model:
   class: Gru-Ultra
-  node_features: no
+  node_features: yes
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1

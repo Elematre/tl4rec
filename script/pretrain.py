@@ -39,7 +39,7 @@ def multigraph_collator(batch, train_graphs):
     return graph, batch
 
 # here we assume that train_data and valid_data are tuples of datasets
-def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
+def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
         return
 
@@ -50,37 +50,32 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
     # Combine parameters from all models
     all_params = []
     param_groups = []
-    if False:
-        for i, model in enumerate(models):
-            model.to(device)
-            if i == 0:
-                # Add backbone convolution parameters for the first model
-                param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
-                param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
-                param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
+    for i, model in enumerate(models):
+        model.to(device)
+        if i == 0:
+            # Add backbone convolution parameters for the first model
+            param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
+            param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
+            param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
+    
+        if cfg.model["node_features"]:
+            # Add projection MLP parameters for each model
+            param_groups.append({"params": model.user_projection.parameters(), "lr": cfg.optimizer["projection_user_lr"]})
+            param_groups.append({"params": model.item_projection.parameters(), "lr": cfg.optimizer["projection_item_lr"]})
+    
+        # Wrap model in DistributedDataParallel if needed
+        if world_size > 1:
+            parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
+        else:
+            parallel_models.append(model)
         
-            if cfg.model["node_features"]:
-                # Add projection MLP parameters for each model
-                param_groups.append({"params": model.user_projection.parameters(), "lr": cfg.optimizer["projection_user_lr"]})
-                param_groups.append({"params": model.item_projection.parameters(), "lr": cfg.optimizer["projection_item_lr"]})
-        
-            # Wrap model in DistributedDataParallel if needed
-            if world_size > 1:
-                parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
-            else:
-                parallel_models.append(model)
-        
-    if world_size > 1:
-        parallel_model = nn.parallel.DistributedDataParallel(model, device_ids=[device])
-    else:
-        parallel_model = model
         
     # Initialize a single optimizer with unique parameter groups
-    #optimizer_cls_name = cfg.optimizer.pop("class")
-    #optimizer_cls = getattr(optim, optimizer_cls_name)
-    #optimizer = optimizer_cls(param_groups)    
-    cls = cfg.optimizer.pop("class")
-    optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
+    optimizer_cls_name = cfg.optimizer.pop("class")
+    optimizer_cls = getattr(optim, optimizer_cls_name)
+    optimizer = optimizer_cls(param_groups)    
+    #cls = cfg.optimizer.pop("class")
+    #optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
 
     # Prepare graph-to-model mapping for efficient lookup       
     graph_to_model_map = {id(dataset): idx for idx, dataset in enumerate(train_data)}
@@ -111,11 +106,9 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
 
     for i in range(0, cfg.train.num_epoch, step):
-
-        # redundant according to gptito
-        #for parallel_model in parallel_models:
-         #   parallel_model.train()
-        parallel_model.train()
+        for parallel_model in parallel_models:
+            parallel_model.train()
+        #parallel_model.train()
         for epoch in range(i, min(cfg.train.num_epoch, i + step)):
             if util.get_rank() == 0:
                 logger.warning(separator)
@@ -128,7 +121,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
                 train_graph, batch = batch
                 # based on the train_graph choose the appropriate model and optimizer
                 graph_idx = graph_to_model_map[id(train_graph)]
-                #parallel_model = parallel_models[graph_idx]
+                parallel_model = parallel_models[graph_idx]
                 
                 batch = tasks.negative_sampling(train_graph, batch, cfg.task.num_negative,
                                                 strict=cfg.task.strict_negative)
@@ -188,7 +181,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         if rank == 0:
             logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
             state = {
-                "model": model.state_dict(),
+                "model": models[0].ultra.state_dict(),
                 "optimizer": optimizer.state_dict()  
             }
             torch.save(state, "model_epoch_%d.pth" % epoch)
@@ -197,8 +190,9 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
-        #result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
-        result = test(cfg, model, valid_data, filtered_data=filtered_data, context = 0)
+        #result = 0
+        result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
+        #result = test(cfg, model, valid_data, filtered_data=filtered_data, context = 0)
         if result > best_result:
             best_result = result
             best_epoch = epoch
@@ -207,8 +201,8 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
     state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
 
-#    for model in models:  
-   #     model.ultra.load_state_dict(state["model"])
+    for model in models:  
+         model.ultra.load_state_dict(state["model"])
     util.synchronize()
     
     # save the final model state
@@ -234,7 +228,7 @@ def train_and_validate(cfg, model, train_data, valid_data, filtered_data=None, b
 
 
 @torch.no_grad()
-def test(cfg, model, test_data, filtered_data=None, context = 0):
+def test(cfg, models, test_data, filtered_data=None, context = 0):
 #def test(cfg, models, test_data, filtered_data=None, context = 0):
     # context is used for determining the calling context of test (train, valid, test)
     
@@ -248,7 +242,7 @@ def test(cfg, model, test_data, filtered_data=None, context = 0):
     all_metrics = []
     dataset_nr = 0
     #for model, test_graph, filters in zip(models, test_data, filtered_data):
-    for test_graph, filters in zip(test_data, filtered_data):
+    for model, test_graph, filters in zip(models, test_data, filtered_data):
         num_users = test_graph.num_users
         test_triplets = torch.cat([test_graph.target_edge_index, test_graph.target_edge_type.unsqueeze(0)]).t()
         sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
@@ -428,9 +422,9 @@ if __name__ == "__main__":
 
     # initialize the list of Gru-Models sharing the backbone Model
     # Shared Ultra backbone
-    #ultra_ref = Ultra(cfg.model, wandb_on)
-    model = Ultra(cfg.model, wandb_on)
-    model = model.to(device)
+    ultra_ref = Ultra(cfg.model, wandb_on)
+    #model = Ultra(cfg.model, wandb_on)
+    ultra_ref = ultra_ref.to(device)
     
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")
@@ -438,12 +432,14 @@ if __name__ == "__main__":
 
     
     # Create a Gru_Ultra model for each dataset
-    #models = []
-    #for td in train_data:
-     #   model_cfg = copy.deepcopy(cfg.model)
-      #  model_cfg.user_projection["input_dim"] = td.x_user.size(1)
-       # model_cfg.item_projection["input_dim"] = td.x_item.size(1)
-        #models.append(Gru_Ultra(model_cfg, ultra_ref, wandb_on))
+    models = []
+    for td in train_data:
+        model_cfg = copy.deepcopy(cfg.model)
+        model_cfg.user_projection["input_dim"] = td.x_user.size(1)
+        model_cfg.item_projection["input_dim"] = td.x_item.size(1)
+        model = Gru_Ultra(model_cfg, ultra_ref, wandb_on)
+        model = model.to(device)
+        models.append(model)
         
    # I avoid this for now 
     #model = model.to(device)
@@ -465,15 +461,15 @@ if __name__ == "__main__":
         for trg, valg, testg in zip(train_data, valid_data, test_data)
     ]
 
-    train_and_validate(cfg, model, train_data, valid_data if "fast_test" not in cfg.train else short_valid, filtered_data=filtered_data, batch_per_epoch=cfg.train.batch_per_epoch)
+    train_and_validate(cfg, models, train_data, valid_data if "fast_test" not in cfg.train else short_valid, filtered_data=filtered_data, batch_per_epoch=cfg.train.batch_per_epoch)
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on valid")
-    #test(cfg, models, valid_data, filtered_data=filtered_data, context = 1)
-    test(cfg, model, valid_data, filtered_data=filtered_data, context = 1)
+    test(cfg, models, valid_data, filtered_data=filtered_data, context = 1)
+    #test(cfg, model, valid_data, filtered_data=filtered_data, context = 1)
   
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on test")
-    #test(cfg, models, test_data, filtered_data=filtered_data, context = 2)
-    test(cfg, model, test_data, filtered_data=filtered_data, context = 2)
+    test(cfg, models, test_data, filtered_data=filtered_data, context = 2)
+    #test(cfg, model, test_data, filtered_data=filtered_data, context = 2)

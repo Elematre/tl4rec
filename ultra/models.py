@@ -25,7 +25,7 @@ class Gru_Ultra(nn.Module):
         if ultra_ref is not None:
             self.ultra = ultra_ref
         else:
-            self.ultra = Ultra(cfg, wandb_logger)
+            self.ultra = Ultra(cfg, log)
         self.log = log
         
     def forward(self, data, batch):
@@ -69,8 +69,8 @@ class Ultra(nn.Module):
         self.simple_model = globals()[simple_model_cfg.pop('class')](**simple_model_cfg)
 
         
-    #def forward(self, data, batch, user_projection, item_projection):
-    def forward(self, data, batch):
+    def forward(self, data, batch, user_projection, item_projection):
+    #def forward(self, data, batch):
         # calculate embeddings
         
         num_users = data.num_users
