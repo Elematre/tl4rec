@@ -69,7 +69,8 @@ class Ultra(nn.Module):
         self.simple_model = globals()[simple_model_cfg.pop('class')](**simple_model_cfg)
 
         
-    def forward(self, data, batch, user_projection, item_projection):
+    #def forward(self, data, batch, user_projection, item_projection):
+    def forward(self, data, batch):
         # calculate embeddings
         
         num_users = data.num_users

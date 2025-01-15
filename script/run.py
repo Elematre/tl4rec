@@ -194,10 +194,11 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     model.load_state_dict(state["model"])
     util.synchronize()
 
-@torch.no_grad()
+
     
 # optimized method only evaluates against 100 samples. 
 # Does not give the exact same result but reasonable close as test with nr_neg_eval = 100 but I reckon this is due to non-determinsim of some methods.
+@torch.no_grad()
 def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
     world_size = util.get_world_size()
     rank = util.get_rank()
