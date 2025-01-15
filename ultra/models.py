@@ -59,7 +59,6 @@ class Ultra(nn.Module):
             self.user_mlp = MLP(cfg.backbone_model.embedding_user)
         else:   
             self.hidden_dim = cfg.backbone_model.embedding_item["hidden_dims"][0]
-            
         self.log = log
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
@@ -74,6 +73,8 @@ class Ultra(nn.Module):
         
         num_users = data.num_users
         num_items = data.num_items
+
+        edge_attr= data.edge_attr
         if self.node_features:    
             user_embedding = self.user_mlp(user_projection)  # shape: (num_users, 16)
             item_embedding = self.item_mlp(item_projection)
@@ -83,7 +84,7 @@ class Ultra(nn.Module):
             user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
         
-        score = self.simple_model(data, batch, user_embedding, item_embedding)
+        score = self.simple_model(data, batch, user_embedding, item_embedding, edge_attr)
         # score (batch_size, 1 + num negatives)
         
         return score
@@ -118,7 +119,7 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+    def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, edge_attr, separate_grad=False):
         user_embedding.to(device=h_index.device)
         item_embedding.to(device=h_index.device)
         h_embeddings.to(device=h_index.device)
@@ -167,7 +168,7 @@ class SimpleNBFNet(BaseNBFNet):
 
         for layer in self.layers:
             # Bellman-Ford iteration, we send the original boundary condition in addition to the updated node states
-            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, size, edge_weight)
+            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, edge_attr,  size, edge_weight)
             if self.short_cut and hidden.shape == layer_input.shape:
                 # residual connection here
                 hidden = hidden + layer_input
@@ -187,7 +188,7 @@ class SimpleNBFNet(BaseNBFNet):
             "edge_weights": edge_weights,
         }
 
-    def forward(self, data, batch, user_embedding, item_embedding):
+    def forward(self, data, batch, user_embedding, item_embedding, edge_attr):
         h_index, t_index, r_index = batch.unbind(-1)
         batch_size = batch.shape[0]
         num_users = user_embedding.shape[0]
@@ -230,7 +231,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings, edge_attr)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states

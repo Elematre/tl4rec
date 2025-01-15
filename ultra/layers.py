@@ -66,7 +66,7 @@ class GeneralizedRelationalConv(MessagePassing):
                 )
 
 
-    def forward(self, input, query, boundary, edge_index, edge_type, size, edge_weight=None):
+    def forward(self, input, query, boundary, edge_index, edge_type, edge_attr, size, edge_weight=None):
         batch_size = len(query)
 
         if self.dependent:
@@ -84,6 +84,7 @@ class GeneralizedRelationalConv(MessagePassing):
         if edge_weight is None:
             edge_weight = torch.ones(len(edge_type), device=input.device)
 
+        #todo Edge_attr
         # note that we send the initial boundary condition (node states at layer0) to the message passing
         # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf
         output = self.propagate(input=input, relation=relation, boundary=boundary, edge_index=edge_index,
