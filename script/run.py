@@ -620,6 +620,7 @@ if __name__ == "__main__":
     # adding the input_dims for the projection mlp's
     cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
     cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+    cfg.model.edge_projection["input_dim"] = train_data.edge_attr.size(1)
     
     model = Gru_Ultra(
         cfg = cfg.model)

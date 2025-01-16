@@ -51,7 +51,7 @@ class BaseNBFNet(nn.Module):
         # mlp.append(nn.Linear(feature_dim, 1))
         # self.mlp = nn.Sequential(*mlp)
 
-    def remove_easy_edges(self, data, h_index, t_index, r_index=None):
+    def remove_easy_edges(self, data, edge_embedding, h_index, t_index, r_index=None):
         # we remove training edges (we need to predict them at training time) from the edge index
         # think of it as a dynamic edge dropout
         h_index_ext = torch.cat([h_index, t_index], dim=-1)
@@ -74,9 +74,10 @@ class BaseNBFNet(nn.Module):
         data = copy.copy(data)
         data.edge_index = data.edge_index[:, mask]
         data.edge_type = data.edge_type[mask]
-        data.edge_attr = data.edge_attr[mask,:]
+        #data.edge_attr = data.edge_attr[mask,:]
+        edge_embedding= edge_embedding[mask,:]
         
-        return data
+        return data, edge_embedding
 
     def negative_sample_to_tail(self, h_index, t_index, r_index, num_direct_rel, h_embeddings, t_embeddings):
         # convert p(h | t, r) to p(t' | h', r')

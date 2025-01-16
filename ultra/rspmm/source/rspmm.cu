@@ -93,10 +93,10 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
 template <class scalar_t, class NaryOp, class BinaryOp>
 __global__
 void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, const int64_t *layer_ind,
-                             const scalar_t *weight, const scalar_t *relation, const scalar_t *input,
+                             const scalar_t *weight, const scalar_t *edge_attr, const scalar_t *relation, const scalar_t *input,
                              const scalar_t *output, const scalar_t *output_grad,
-                             scalar_t *weight_grad, scalar_t *relation_grad, scalar_t *input_grad,
-                             int64_t num_row, int64_t nnz, int64_t dim) {
+                             scalar_t *weight_grad, scalar_t *edge_attr_grad, scalar_t *relation_grad, scalar_t *input_grad,
+                             int64_t num_row, int64_t nnz, int64_t dim, int64_t edge_attr_dim) {
     // for best optimization, the following code is compiled with constant warpSize
     assert(blockDim.x == warpSize);
 
@@ -130,24 +130,26 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
             scalar_t w_grad = 0;
+            const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
+            scalar_t *attr_grad_ptr = edge_attr_grad + offset_ptr * edge_attr_dim;
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
                 int64_t d = d_start + i * warpSize;
                 if (d >= dim)
                     break;
-                scalar_t rel = relation[layer * dim + d];
+                scalar_t attr_value = attr_ptr[d % edge_attr_dim];
                 scalar_t in = input[col * dim + d];
                 scalar_t out = output[row * dim + d];
                 scalar_t out_grad = output_grad[row * dim + d];
-                scalar_t x = BinaryOp::forward(rel, in);
+                scalar_t x = BinaryOp::forward(attr_value, in);
                 scalar_t y = w * x;
-                scalar_t dx_drel = BinaryOp::backward_lhs(rel, in);
-                scalar_t dx_din = BinaryOp::backward_rhs(rel, in);
+                scalar_t dx_drel = BinaryOp::backward_lhs(attr_value, in);
+                scalar_t dx_din = BinaryOp::backward_rhs(attr_value, in);
                 scalar_t dout_dy = NaryOp::backward(out, y);
                 scalar_t dy_dw = x;
                 scalar_t dy_dx = w;
                 w_grad += out_grad * dout_dy * dy_dw;
-                atomicAdd(&relation_grad[layer * dim + d], out_grad * dout_dy * dy_dx * dx_drel);
+                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_drel);
                 atomicAdd(&input_grad[col * dim + d], out_grad * dout_dy * dy_dx * dx_din);
             }
             w_grad = warp_reduce(w_grad);
@@ -162,10 +164,10 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
 template <class scalar_t, class NaryOp, class BinaryOp>
 __global__
 void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, const int64_t *layer_ind,
-                             const scalar_t *weight, const scalar_t *relation, const scalar_t *input,
-                             const scalar_t *output, const scalar_t *output_grad,
+                             const scalar_t *weight, const scalar_t *edge_attr, const scalar_t *relation, const scalar_t *input,
+                             const scalar_t *output, const scalar_t *output_grad, scalar_t *edge_attr_grad,
                              scalar_t *relation_grad, scalar_t *input_grad,
-                             int64_t num_row, int64_t nnz, int64_t dim) {
+                             int64_t num_row, int64_t nnz, int64_t dim, int64_t edge_attr_dim) {
     // for best optimization, the following code is compiled with constant warpSize
     assert(blockDim.x == warpSize);
 
@@ -198,22 +200,24 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             int64_t col = col_ind_buf[offset_ptr];
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
+            const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
+            scalar_t *attr_grad_ptr = edge_attr_grad + offset_ptr * edge_attr_dim;
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
                 int64_t d = d_start + i * warpSize;
                 if (d >= dim)
                     break;
-                scalar_t rel = relation[layer * dim + d];
+                scalar_t attr_value = attr_ptr[d % edge_attr_dim];
                 scalar_t in = input[col * dim + d];
                 scalar_t out = output[row * dim + d];
                 scalar_t out_grad = output_grad[row * dim + d];
-                scalar_t x = BinaryOp::forward(rel, in);
+                scalar_t x = BinaryOp::forward(attr_value, in);
                 scalar_t y = w * x;
-                scalar_t dx_drel = BinaryOp::backward_lhs(rel, in);
-                scalar_t dx_din = BinaryOp::backward_rhs(rel, in);
+                scalar_t dx_drel = BinaryOp::backward_lhs(attr_value, in);
+                scalar_t dx_din = BinaryOp::backward_rhs(attr_value, in);
                 scalar_t dout_dy = NaryOp::backward(out, y);
                 scalar_t dy_dx = w;
-                atomicAdd(&relation_grad[layer * dim + d], out_grad * dout_dy * dy_dx * dx_drel);
+                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_drel);
                 atomicAdd(&input_grad[col * dim + d], out_grad * dout_dy * dy_dx * dx_din);
             }
         }
@@ -280,7 +284,7 @@ Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, c
 
 template <template<class> class NaryOp, template<class> class BinaryOp>
 std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
-        const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_,
+        const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_,const Tensor &edge_attr_,
         const Tensor &relation_, const Tensor &input_, const Tensor &output_, const Tensor &output_grad_) {
     constexpr const char *fn_name = "rspmm_backward_cuda";
     TensorArg edge_index_arg(edge_index_, "edge_index", 1), edge_type_arg(edge_type_, "edge_type", 2),
@@ -296,6 +300,7 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
     const Tensor edge_index = edge_index_.contiguous();
     const Tensor edge_type = edge_type_.contiguous();
     const Tensor edge_weight = edge_weight_.contiguous();
+    const Tensor edge_attr = edge_attr_.contiguous(); 
     const Tensor relation = relation_.contiguous();
     const Tensor input = input_.contiguous();
     const Tensor output = output_.contiguous();
@@ -304,7 +309,10 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
     int64_t nnz = edge_index.size(1);
     int64_t num_row = input.size(0);
     int64_t dim = input.size(1);
+    int64_t edge_attr_dim = edge_attr.size(1); 
+
     Tensor weight_grad = at::zeros_like(edge_weight);
+    Tensor edge_attr_grad = at::zeros_like(edge_attr);
     Tensor relation_grad = at::zeros_like(relation);
     Tensor input_grad = at::zeros_like(input);
 
@@ -330,14 +338,16 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
                 col_ind.data_ptr<int64_t>(),
                 layer_ind.data_ptr<int64_t>(),
                 edge_weight.data_ptr<scalar_t>(),
+                edge_attr.data_ptr<scalar_t>(),
                 relation.data_ptr<scalar_t>(),
                 input.data_ptr<scalar_t>(),
                 output.data_ptr<scalar_t>(),
                 output_grad.data_ptr<scalar_t>(),
                 weight_grad.data_ptr<scalar_t>(),
+                edge_attr_grad.data_ptr<scalar_t>(),
                 relation_grad.data_ptr<scalar_t>(),
                 input_grad.data_ptr<scalar_t>(),
-                num_row, nnz, dim
+                num_row, nnz, dim, edge_attr_dim
             );
         });
     else
@@ -349,17 +359,19 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
                 col_ind.data_ptr<int64_t>(),
                 layer_ind.data_ptr<int64_t>(),
                 edge_weight.data_ptr<scalar_t>(),
+                edge_attr.data_ptr<scalar_t>(),
                 relation.data_ptr<scalar_t>(),
                 input.data_ptr<scalar_t>(),
                 output.data_ptr<scalar_t>(),
                 output_grad.data_ptr<scalar_t>(),
+                edge_attr_grad.data_ptr<scalar_t>(),
                 relation_grad.data_ptr<scalar_t>(),
                 input_grad.data_ptr<scalar_t>(),
-                num_row, nnz, dim
+                num_row, nnz, dim, edge_attr_dim
             );
         });
 
-    return std::make_tuple(weight_grad, relation_grad, input_grad);
+    return std::make_tuple(weight_grad, edge_attr_grad, relation_grad, input_grad);
 }
 
 #define DECLARE_FORWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
@@ -371,9 +383,9 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
 
 #define DECLARE_BACKWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
     std::tuple<Tensor, Tensor, Tensor> rspmm_##ADD##_##MUL##_backward_cuda(                                 \
-            const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight,                   \
+            const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,                   \
             const Tensor &relation, const Tensor &input, const Tensor &output, const Tensor &output_grad) { \
-        return rspmm_backward_cuda<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, relation, input,   \
+        return rspmm_backward_cuda<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, edge_attr, relation, input,   \
                                                      output, output_grad);                                  \
     }
 

@@ -22,15 +22,16 @@ class RSPMMAddMulFunction(autograd.Function):
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"
-        print(input.device.type)
+        #print(input.device.type)
         if input.device.type == "cuda":
             forward = rspmm.rspmm_add_mul_forward_cuda
         else:
             forward = rspmm.rspmm_add_mul_forward_cpu
         
         output = forward(edge_index, edge_type, edge_weight, edge_attr, relation, input)
-        raise ValueError("until here") 
-        ctx.save_for_backward(edge_index, edge_type, edge_weight, relation, input, output)
+        #raise ValueError("until here") 
+        ctx.save_for_backward(edge_index, edge_type, edge_weight,edge_attr, relation, input, output)
+        #ctx.save_for_backward(edge_index, edge_type, edge_weight, relation, input, output)
         return output
         
     # calculates gradient
@@ -41,7 +42,7 @@ class RSPMMAddMulFunction(autograd.Function):
         else:
             backward = rspmm.rspmm_add_mul_backward_cpu
         weight_grad, relation_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
-        return None, None, weight_grad, relation_grad, input_grad
+        return None, None, weight_grad, edge_attr_grad, relation_grad, input_grad
 
 
 class RSPMMMinMulFunction(autograd.Function):

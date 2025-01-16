@@ -9,7 +9,8 @@ dataset:
 
 model:
   class: Gru-Ultra
-  node_features: yes
+  node_features: no
+  edge_features: yes
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1
@@ -20,6 +21,11 @@ model:
    dropout_rate: 0.1
    use_layer_norm: yes
    hidden_dims: [32]
+  edge_projection: 
+   use_dropout: no
+   dropout_rate: 0.1
+   use_layer_norm: no
+   hidden_dims: [4]
   backbone_model:
     simple_model:
       class: SimpleNBFNet
@@ -40,6 +46,11 @@ model:
       dropout_rate: 0.1
       use_layer_norm: no
       hidden_dims: [32, 32]
+    embedding_edge:
+      use_dropout: no
+      dropout_rate: 0.1
+      use_layer_norm: no
+      hidden_dims: [4, 4, 4]
 
 
 task:

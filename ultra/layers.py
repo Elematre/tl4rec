@@ -66,8 +66,10 @@ class GeneralizedRelationalConv(MessagePassing):
                 )
 
 
-    def forward(self, input, query, boundary, edge_index, edge_type, edge_attr, size, edge_weight=None):
+    def forward(self, input, query, boundary, edge_index, edge_type, conv_edge_embedding, size, edge_weight=None):
         batch_size = len(query)
+        #print (f"conv_edge_embedding.shape: {conv_edge_embedding.shape}")
+        #raise NotImplementedError
         if self.dependent:
             # layer-specific relation features as a projection of input "query" (relation) embeddings
             relation = self.relation_linear(query).view(batch_size, self.num_relation, self.input_dim)
@@ -87,7 +89,7 @@ class GeneralizedRelationalConv(MessagePassing):
         # note that we send the initial boundary condition (node states at layer0) to the message passing
         # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf
         output = self.propagate(input=input, relation=relation, boundary=boundary, edge_index=edge_index,
-                                edge_type=edge_type, size=size, edge_weight=edge_weight, edge_attr = edge_attr)
+                                edge_type=edge_type, size=size, edge_weight=edge_weight, edge_attr = conv_edge_embedding)
         return output
 
     def propagate(self, edge_index, size=None, **kwargs):

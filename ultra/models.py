@@ -16,11 +16,16 @@ class Gru_Ultra(nn.Module):
         
         # Dataset-specific projection layerscfg.backbone_model
         self.node_features = cfg["node_features"]
+        self.edge_features = cfg["edge_features"]
         if self.node_features:
             self.user_projection =  MLP(cfg.user_projection)
             self.item_projection =  MLP(cfg.item_projection)
         else:
             self.hidden_dim = cfg.user_projection["hidden_dims"][0]
+        if self.edge_features:
+            self.edge_projection =  MLP(cfg.edge_projection)
+        else:
+            raise NotImplementedError
         # Shared backbone
         if ultra_ref is not None:
             self.ultra = ultra_ref
@@ -41,8 +46,12 @@ class Gru_Ultra(nn.Module):
         else:
             user_projection = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_projection = torch.zeros(num_items, self.hidden_dim, device = batch.device)
-        
-        score = self.ultra(data, batch, user_projection, item_projection)
+            
+        if self.edge_features:
+            conv_edge_projection = self.edge_projection(data.edge_attr)
+        else:
+            raise NotImplementedError
+        score = self.ultra(data, batch, user_projection, item_projection, conv_edge_projection)
         # what does score look like? score (batch_size, 1 + num negatives)
         
         return score
@@ -54,11 +63,18 @@ class Ultra(nn.Module):
         super(Ultra, self).__init__()
         # MLP's for obtaining item/user emb.
         self.node_features = cfg["node_features"]
+        self.edge_features = cfg["edge_features"]
         if self.node_features:
             self.item_mlp = MLP(cfg.backbone_model.embedding_item)
             self.user_mlp = MLP(cfg.backbone_model.embedding_user)
         else:   
             self.hidden_dim = cfg.backbone_model.embedding_item["hidden_dims"][0]
+        
+        if self.edge_features:
+            self.edge_mlp = MLP(cfg.backbone_model.embedding_edge)
+        else:   
+            raise NotImplementedError
+            
         self.log = log
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
@@ -68,7 +84,7 @@ class Ultra(nn.Module):
         self.simple_model = globals()[simple_model_cfg.pop('class')](**simple_model_cfg)
 
         
-    def forward(self, data, batch, user_projection, item_projection):
+    def forward(self, data, batch, user_projection, item_projection, conv_edge_projection):
         # calculate embeddings
         
         num_users = data.num_users
@@ -83,8 +99,10 @@ class Ultra(nn.Module):
         else:
             user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+        if self.edge_features:
+            conv_edge_embedding = self.edge_mlp(conv_edge_projection) 
         
-        score = self.simple_model(data, batch, user_embedding, item_embedding, edge_attr)
+        score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding)
         # score (batch_size, 1 + num negatives)
         
         return score
@@ -119,7 +137,7 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+    def bellmanford(self, data, conv_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
         user_embedding.to(device=h_index.device)
         item_embedding.to(device=h_index.device)
         h_embeddings.to(device=h_index.device)
@@ -168,7 +186,7 @@ class SimpleNBFNet(BaseNBFNet):
 
         for layer in self.layers:
             # Bellman-Ford iteration, we send the original boundary condition in addition to the updated node states
-            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, data.edge_attr,  size, edge_weight)
+            hidden = layer(layer_input, query, boundary, data.edge_index, data.edge_type, conv_edge_embedding,  size, edge_weight)
             if self.short_cut and hidden.shape == layer_input.shape:
                 # residual connection here
                 hidden = hidden + layer_input
@@ -188,7 +206,7 @@ class SimpleNBFNet(BaseNBFNet):
             "edge_weights": edge_weights,
         }
 
-    def forward(self, data, batch, user_embedding, item_embedding, edge_attr):
+    def forward(self, data, batch, user_embedding, item_embedding, conv_edge_embedding):
         h_index, t_index, r_index = batch.unbind(-1)
         batch_size = batch.shape[0]
         num_users = user_embedding.shape[0]
@@ -202,8 +220,10 @@ class SimpleNBFNet(BaseNBFNet):
             # Edge dropout in the training mode
             # here we want to remove immediate edges (head, relation, tail) from the edge_index and edge_types
             # to make NBFNet iteration learn non-trivial paths
-            data = self.remove_easy_edges(data, h_index, t_index, r_index)
-
+            #print (f"before removal conv_edge_embedding.shape: {conv_edge_embedding.shape}")
+            data, conv_edge_embedding= self.remove_easy_edges(data, conv_edge_embedding, h_index, t_index, r_index)
+            #print (f"after removal conv_edge_embedding.shape: {conv_edge_embedding.shape}")
+            #raise NotImplementedError
         
         # gather the head/tail_node embeddings such that h_embeddings.shape = (bs, 1 + num_neg, emb_dim)
         # note orignally we only have user item edges but due to corruption we have may have user-user, item-item edges
@@ -231,7 +251,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, conv_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states
