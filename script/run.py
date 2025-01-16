@@ -169,9 +169,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             logger.warning("Evaluate on valid")
             
         if fine_tuning:
-            #result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
-            result_dict = {}
-            result_dict["ndcg@20"] = 1
+            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            #result_dict = {}
+            #result_dict["ndcg@20"] = 1
         else:
             #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
             result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
@@ -622,8 +622,7 @@ if __name__ == "__main__":
     cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
     cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
     
-    model = Gru_Ultra(
-        cfg = cfg.model)
+    model = Gru_Ultra(cfg.model, log = wandb_on)
 
     #model = My_LightGCN(train_data.num_nodes)
     

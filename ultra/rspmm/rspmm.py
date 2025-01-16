@@ -16,6 +16,7 @@ class RSPMMAddMulFunction(autograd.Function):
         #print (f"edge_index.shape() : {edge_index.shape}")
         #print (f"edge_type.shape() : {edge_type.shape}")
         #print (f"input.shape() : {input.shape}")
+        raise ValueError("asdf")
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"

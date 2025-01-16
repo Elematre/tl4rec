@@ -11,8 +11,14 @@ model:
   class: Gru-Ultra
   node_features: yes
   user_projection:
+   use_dropout: yes
+   dropout_rate: 0.1
+   use_layer_norm: yes
    hidden_dims: [32]
   item_projection: 
+   use_dropout: yes
+   dropout_rate: 0.1
+   use_layer_norm: yes
    hidden_dims: [32]
   backbone_model:
     simple_model:
@@ -25,9 +31,16 @@ model:
       layer_norm: yes
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
     embedding_user:
+      use_dropout: no
+      dropout_rate: 0.1
+      use_layer_norm: no
       hidden_dims: [32, 32]
     embedding_item:
+      use_dropout: no
+      dropout_rate: 0.1
+      use_layer_norm: no
       hidden_dims: [32, 32]
+
     
 
 

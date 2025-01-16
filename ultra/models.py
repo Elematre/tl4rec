@@ -41,9 +41,9 @@ class Gru_Ultra(nn.Module):
         else:
             user_projection = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_projection = torch.zeros(num_items, self.hidden_dim, device = batch.device)
-        
+        # Note embeddings / projections are calculated on a per batch basis
         score = self.ultra(data, batch, user_projection, item_projection)
-        # what does score look like? score (batch_size, 1 + num negatives)
+        # score (batch_size, 1 + num negatives)
         
         return score
     
@@ -120,14 +120,15 @@ class SimpleNBFNet(BaseNBFNet):
 
     
     def bellmanford(self, data, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+        # First we calculate the boundary condition: for a query h,r we initialize v:
+        #  - with the indicator function h == v concatenated with:
+        # the embedding v
+        
         user_embedding.to(device=h_index.device)
         item_embedding.to(device=h_index.device)
         h_embeddings.to(device=h_index.device)
         batch_size = len(h_index)
         
-        # initialize queries (relation types of the given triples)
-        # Must adjust size of queries since we add the 16 bit embeddings 
-        # in the hidden layers we project (expected input dim) the queries for further calculations
         input_dim = self.dims[0]
         embedding_dim = user_embedding.size(1)
         
@@ -135,18 +136,13 @@ class SimpleNBFNet(BaseNBFNet):
         query_temp = torch.ones(h_index.shape[0], input_dim - embedding_dim, device=h_index.device, dtype=torch.float)
     
 
-        # query with head_embeddings
         # Compress h_embeddings to (batch_size, input_dim - query_size) by taking the first column since all head_embeddings are consistent in each batch
         compressed_h_embeddings = h_embeddings[:, 0, :]
+    
+        # This is the query vector which basically is the boundary condition for the query nodes --> will be passed to the final mlp
         query = torch.cat([query_temp, compressed_h_embeddings], dim=1)
-        
-        # query without head_embeddings used for scatteradd
-        zeros = torch.zeros(batch_size, embedding_dim, dtype=query_temp.dtype, device=h_index.device)  # Create zeros on the same device as h_index
-        query_zero = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
-        
-        index = h_index.unsqueeze(-1).expand_as(query)
 
-
+        # now we will calculate the boundary condition for all nodes
         # Initialize all node states as zeros
         boundary = torch.zeros(batch_size, data.num_nodes, input_dim, device=h_index.device)  # size is 32 (16 + 16)
         
@@ -155,13 +151,16 @@ class SimpleNBFNet(BaseNBFNet):
         all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
         boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
         
-        boundary.scatter_add_(1, index.unsqueeze(1), query_zero.unsqueeze(1))  # Add relation embeddings to the first 16 entries
+        # create vector for query nodes with indicator h == v concatenated with the zeros for scatter add into the boundary vector 
+        zeros = torch.zeros(batch_size, embedding_dim, dtype=query_temp.dtype, device=h_index.device)  
+        query_zero = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
+        index = h_index.unsqueeze(-1).expand_as(query)
+        boundary.scatter_add_(1, index.unsqueeze(1), query_zero.unsqueeze(1))  # Add indicator function for the query nodes
         
 
         
         size = (data.num_nodes, data.num_nodes)
         edge_weight = torch.ones(data.num_edges, device=h_index.device)
-
         hiddens = []
         edge_weights = []
         layer_input = boundary
@@ -175,8 +174,9 @@ class SimpleNBFNet(BaseNBFNet):
             hiddens.append(hidden)
             edge_weights.append(edge_weight)
             layer_input = hidden
-
-        # original query (relation type) embeddings
+            
+        # output calculation: Maybe Concate all hidden layer outputs or just 1 with the query
+        # original query (indicator) + embedding embeddings
         node_query = query.unsqueeze(1).expand(-1, data.num_nodes, -1) # (batch_size, num_nodes, input_dim)
         if self.concat_hidden:
             output = torch.cat(hiddens + [node_query], dim=-1)

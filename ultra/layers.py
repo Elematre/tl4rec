@@ -18,8 +18,7 @@ class GeneralizedRelationalConv(MessagePassing):
         "distmult": "mul",
     }
 
-    # TODO for compile() - doesn't work currently
-    # propagate_type = {"edge_index": torch.LongTensor, "size": Tuple[int, int]}
+
 
     def __init__(self, input_dim, output_dim, num_relation, query_input_dim, message_func="distmult",
                  aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_relations=False, relation_input_dim = 0):
@@ -65,7 +64,6 @@ class GeneralizedRelationalConv(MessagePassing):
                     nn.Linear(input_dim, input_dim)
                 )
 
-
     def forward(self, input, query, boundary, edge_index, edge_type, size, edge_weight=None):
         batch_size = len(query)
 
@@ -86,8 +84,12 @@ class GeneralizedRelationalConv(MessagePassing):
 
         # note that we send the initial boundary condition (node states at layer0) to the message passing
         # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf
+        # at this point: intput is the input from the previous layer --> bs, num_nodes, hidden_dim
+        # relation is bs, num_rels, hidden_dim
+        # size is tuple num_nodes,num_nodes
         output = self.propagate(input=input, relation=relation, boundary=boundary, edge_index=edge_index,
                                 edge_type=edge_type, size=size, edge_weight=edge_weight)
+        
         return output
 
     def propagate(self, edge_index, size=None, **kwargs):
