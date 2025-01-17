@@ -29,13 +29,11 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
     assert(blockDim.x == warpSize);
 
     extern __shared__ int64_t buffer[];
+    // each fit an entire block
     int64_t *col_ind_buf = buffer;
     int64_t *layer_ind_buf = buffer + blockDim.y * warpSize;
-
-    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-        printf("Scalar size: %zu\n", sizeof(scalar_t));
-    }
     scalar_t *weight_buf = reinterpret_cast<scalar_t *>(layer_ind_buf + blockDim.y * warpSize);
+    // used to get the base address per thread
     col_ind_buf += threadIdx.y * warpSize;
     layer_ind_buf += threadIdx.y * warpSize;
     weight_buf += threadIdx.y * warpSize;
@@ -72,8 +70,17 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
 
+            // weight_buf[offset_ptr] = weight[ptr]; where ptr=  block_ptr + offset_ptr;
+            //--> weight_buf[offset_ptr] = weight[block_ptr + offset_ptr];
+
             // Pointer to the edge attributes for this edge
-            const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
+            const scalar_t *attr_ptr = edge_attr + (block_ptr + offset_ptr) * edge_attr_dim;
+            //const scalar_t *attr_ptr = edge_attr + ptr * edge_attr_dim;
+
+            if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+                printf("offset_ptr %d: %f\n", offset_ptr);
+            }
+
 
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
@@ -82,7 +89,15 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
                     break;
 
                  // Use edge_attr directly in the distmult computation
+        
                 scalar_t edge_attr_value = attr_ptr[d % edge_attr_dim]; // Use modulo to map dim to edge_attr features
+
+
+                if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+                    printf("attr_ptr[%d]: %f\n", d % edge_attr_dim, edge_attr_value);
+                    printf("input[%d]: %f\n", col * dim + d, input[col * dim + d]);
+                }
+
                 scalar_t x = BinaryOp::forward(edge_attr_value, input[col * dim + d]);
                 scalar_t y = w * x;
 
