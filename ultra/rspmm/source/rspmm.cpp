@@ -79,11 +79,12 @@ void rspmm_forward_out_cpu(const int64_t *row_ptr, const int64_t *col_ind, const
 
 template <class scalar_t, class NaryOp, class BinaryOp>
 void rspmm_backward_out_cpu(const int64_t *row_ptr, const int64_t *col_ind, const int64_t *layer_ind,
-                            const scalar_t *weight, const scalar_t *relation, const scalar_t *input,
+                            const scalar_t *weight, const scalar_t *edge_attr, const scalar_t *relation, const scalar_t *input,
                             const scalar_t *output, const scalar_t *output_grad,
-                            scalar_t *weight_grad, scalar_t *relation_grad, scalar_t *input_grad,
-                            int64_t num_row, int64_t nnz, int64_t dim,
-                            std::vector<std::mutex> &relation_mutex, std::vector<std::mutex> &input_mutex) {
+                            scalar_t *weight_grad, scalar_t *edge_attr_grad,
+                            scalar_t *relation_grad, scalar_t *input_grad,
+                            int64_t num_row, int64_t nnz, int64_t dim, int64_t edge_attr_dim,
+                            std::vector<std::mutex> &edge_attr_mutex, std::vector<std::mutex> &input_mutex) {
     parallel_for(0, num_row, 0, [&](int64_t row_start, int64_t row_end) {
         for (int64_t row = row_start; row < row_end; row++) {
             int64_t ptr_start = row_ptr[row];
@@ -93,22 +94,24 @@ void rspmm_backward_out_cpu(const int64_t *row_ptr, const int64_t *col_ind, cons
                 int64_t layer = layer_ind[ptr];
                 scalar_t w = weight[ptr];
                 scalar_t w_grad = 0;
+                const scalar_t *attr_ptr = edge_attr + ptr * edge_attr_dim;
+                scalar_t *attr_grad_ptr = edge_attr_grad + ptr * edge_attr_dim;
                 for (int64_t d = 0; d < dim; d++) {
-                    scalar_t rel = relation[layer * dim + d];
+                    scalar_t attr_value = attr_ptr[d % edge_attr_dim];
                     scalar_t in = input[col * dim + d];
                     scalar_t out = output[row * dim + d];
                     scalar_t out_grad = output_grad[row * dim + d];
-                    scalar_t x = BinaryOp::forward(rel, in);
+                    scalar_t x = BinaryOp::forward(attr_value, in);
                     scalar_t y = w * x;
-                    scalar_t dx_drel = BinaryOp::backward_lhs(rel, in);
-                    scalar_t dx_din = BinaryOp::backward_rhs(rel, in);
+                    scalar_t dx_dattr = BinaryOp::backward_lhs(attr_value, in);
+                    scalar_t dx_din = BinaryOp::backward_rhs(attr_value, in);
                     scalar_t dout_dy = NaryOp::backward(out, y);
                     scalar_t dy_dw = x;
                     scalar_t dy_dx = w;
                     w_grad += out_grad * dout_dy * dy_dw;
                     {
-                        std::lock_guard<std::mutex> lock(relation_mutex[layer * dim + d]);
-                        relation_grad[layer * dim + d] += out_grad * dout_dy * dy_dx * dx_drel;
+                        std::lock_guard<std::mutex> lock(edge_attr_mutex[ptr * edge_attr_dim + d % edge_attr_dim]);
+                        attr_grad_ptr[d % edge_attr_dim] += out_grad * dout_dy * dy_dx * dx_dattr;
                     }
                     {
                         std::lock_guard<std::mutex> lock(input_mutex[col * dim + d]);
@@ -169,8 +172,8 @@ Tensor rspmm_forward_cpu(const Tensor &edge_index_, const Tensor &edge_type_, co
 }
 
 template <template<class> class NaryOp, template<class> class BinaryOp>
-std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
-        const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_backward_cpu(
+        const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_, const Tensor &edge_attr_,
         const Tensor &relation_, const Tensor &input_, const Tensor &output_, const Tensor &output_grad_) {
     constexpr const char *fn_name = "rspmm_backward_cpu";
     TensorArg edge_index_arg(edge_index_, "edge_index", 1), edge_type_arg(edge_type_, "edge_type", 2),
@@ -185,6 +188,7 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
     const Tensor edge_index = edge_index_.contiguous();
     const Tensor edge_type = edge_type_.contiguous();
     const Tensor edge_weight = edge_weight_.contiguous();
+    const Tensor edge_attr = edge_attr_.contiguous();
     const Tensor relation = relation_.contiguous();
     const Tensor input = input_.contiguous();
     const Tensor output = output_.contiguous();
@@ -193,7 +197,9 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
     int64_t nnz = edge_index.size(1);
     int64_t num_row = input.size(0);
     int64_t dim = input.size(1);
+    int64_t edge_attr_dim = edge_attr.size(1);
     Tensor weight_grad = at::zeros_like(edge_weight);
+    Tensor edge_attr_grad = at::zeros_like(edge_attr);
     Tensor relation_grad = at::zeros_like(relation);
     Tensor input_grad = at::zeros_like(input);
 
@@ -201,7 +207,7 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
     Tensor row_ptr = ind2ptr(row_ind, num_row);
     Tensor col_ind = edge_index.select(0, 1);
     Tensor layer_ind = edge_type;
-    std::vector<std::mutex> relation_mutex(relation.numel());
+    std::vector<std::mutex> edge_attr_mutex(edge_attr.numel());
     std::vector<std::mutex> input_mutex(input.numel());
 
     AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rspmm_backward_cpu", [&] {
@@ -210,19 +216,21 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
             col_ind.data_ptr<int64_t>(),
             layer_ind.data_ptr<int64_t>(),
             edge_weight.data_ptr<scalar_t>(),
+            edge_attr.data_ptr<scalar_t>(), 
             relation.data_ptr<scalar_t>(),
             input.data_ptr<scalar_t>(),
             output.data_ptr<scalar_t>(),
             output_grad.data_ptr<scalar_t>(),
             weight_grad.data_ptr<scalar_t>(),
+            edge_attr_grad.data_ptr<scalar_t>(),
             relation_grad.data_ptr<scalar_t>(),
             input_grad.data_ptr<scalar_t>(),
-            num_row, nnz, dim,
-            relation_mutex, input_mutex
+            num_row, nnz, dim, edge_attr_dim,
+            edge_attr_mutex, input_mutex
         );
     });
 
-    return std::make_tuple(weight_grad, relation_grad, input_grad);
+    return std::make_tuple(weight_grad, edge_attr_grad, relation_grad, input_grad);
 }
 
 #define DECLARE_FORWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
@@ -233,10 +241,10 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cpu(
     }
 
 #define DECLARE_BACKWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
-    std::tuple<Tensor, Tensor, Tensor> rspmm_##ADD##_##MUL##_backward_cpu(                                  \
+    std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_##ADD##_##MUL##_backward_cpu(                                  \
             const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight,                   \
-            const Tensor &relation, const Tensor &input, const Tensor &output, const Tensor &output_grad) { \
-        return rspmm_backward_cpu<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, relation, input,    \
+            const Tensor &edge_attr, const Tensor &relation, const Tensor &input, const Tensor &output, const Tensor &output_grad) { \
+        return rspmm_backward_cpu<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, edge_attr, relation, input,    \
                                                      output, output_grad);                                  \
     }
 

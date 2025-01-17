@@ -19,6 +19,8 @@ class RSPMMAddMulFunction(autograd.Function):
         #print (f"edge_type.shape() : {edge_type.shape}")
         #print (f"input.shape() : {input.shape}")
         #raise ValueError("until here") 
+        print(edge_index.dtype, edge_type.dtype, edge_weight.dtype, edge_attr.dtype,relation.dtype, input.dtype)
+        raise ValueError("until here") 
         node_in, node_out = edge_index
         key = node_in * (node_out.max() + 1) + node_out
         assert (key.diff() >= 0).all(), "Expect sorted `edge_index`"
@@ -41,7 +43,7 @@ class RSPMMAddMulFunction(autograd.Function):
             backward = rspmm.rspmm_add_mul_backward_cuda
         else:
             backward = rspmm.rspmm_add_mul_backward_cpu
-        weight_grad, relation_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
+        weight_grad, edge_attr_grad, relation_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
         return None, None, weight_grad, edge_attr_grad, relation_grad, input_grad
 
 

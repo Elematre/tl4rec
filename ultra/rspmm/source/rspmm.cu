@@ -31,6 +31,10 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
     extern __shared__ int64_t buffer[];
     int64_t *col_ind_buf = buffer;
     int64_t *layer_ind_buf = buffer + blockDim.y * warpSize;
+
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+        printf("Scalar size: %zu\n", sizeof(scalar_t));
+    }
     scalar_t *weight_buf = reinterpret_cast<scalar_t *>(layer_ind_buf + blockDim.y * warpSize);
     col_ind_buf += threadIdx.y * warpSize;
     layer_ind_buf += threadIdx.y * warpSize;
@@ -54,6 +58,12 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
             layer_ind_buf[threadIdx.x] = layer_ind[ptr];
             weight_buf[threadIdx.x] = weight[ptr];
         }
+        if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+            printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
+            printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
+            printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
+        }
+
         __syncwarp();
 
         int64_t max_offset = warpSize < ptr_end - block_ptr ? warpSize : ptr_end - block_ptr;
@@ -75,6 +85,12 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
                 scalar_t edge_attr_value = attr_ptr[d % edge_attr_dim]; // Use modulo to map dim to edge_attr features
                 scalar_t x = BinaryOp::forward(edge_attr_value, input[col * dim + d]);
                 scalar_t y = w * x;
+
+                if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+                    printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
+                    printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
+                    printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
+                }
                 out[i] = NaryOp::forward(out[i], y);
             }
         }
@@ -86,6 +102,11 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
         int64_t d = d_start + i * warpSize;
         if (d >= dim)
             break;
+        if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+            printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
+            printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
+            printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
+        }
         output[row * dim + d] = out[i];
     }
 }
@@ -143,13 +164,13 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
                 scalar_t out_grad = output_grad[row * dim + d];
                 scalar_t x = BinaryOp::forward(attr_value, in);
                 scalar_t y = w * x;
-                scalar_t dx_drel = BinaryOp::backward_lhs(attr_value, in);
+                scalar_t dx_dattr = BinaryOp::backward_lhs(attr_value, in);
                 scalar_t dx_din = BinaryOp::backward_rhs(attr_value, in);
                 scalar_t dout_dy = NaryOp::backward(out, y);
                 scalar_t dy_dw = x;
                 scalar_t dy_dx = w;
                 w_grad += out_grad * dout_dy * dy_dw;
-                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_drel);
+                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_dattr);
                 atomicAdd(&input_grad[col * dim + d], out_grad * dout_dy * dy_dx * dx_din);
             }
             w_grad = warp_reduce(w_grad);
@@ -213,11 +234,11 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
                 scalar_t out_grad = output_grad[row * dim + d];
                 scalar_t x = BinaryOp::forward(attr_value, in);
                 scalar_t y = w * x;
-                scalar_t dx_drel = BinaryOp::backward_lhs(attr_value, in);
+                scalar_t dx_dattr = BinaryOp::backward_lhs(attr_value, in);
                 scalar_t dx_din = BinaryOp::backward_rhs(attr_value, in);
                 scalar_t dout_dy = NaryOp::backward(out, y);
                 scalar_t dy_dx = w;
-                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_drel);
+                atomicAdd(&attr_grad_ptr[d % edge_attr_dim], out_grad * dout_dy * dy_dx * dx_dattr);
                 atomicAdd(&input_grad[col * dim + d], out_grad * dout_dy * dy_dx * dx_din);
             }
         }
@@ -283,7 +304,7 @@ Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, c
 }
 
 template <template<class> class NaryOp, template<class> class BinaryOp>
-std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_backward_cuda(
         const Tensor &edge_index_, const Tensor &edge_type_, const Tensor &edge_weight_,const Tensor &edge_attr_,
         const Tensor &relation_, const Tensor &input_, const Tensor &output_, const Tensor &output_grad_) {
     constexpr const char *fn_name = "rspmm_backward_cuda";
@@ -382,7 +403,7 @@ std::tuple<Tensor, Tensor, Tensor> rspmm_backward_cuda(
     }
 
 #define DECLARE_BACKWARD_IMPL(ADD, MUL, NARYOP, BINARYOP) \
-    std::tuple<Tensor, Tensor, Tensor> rspmm_##ADD##_##MUL##_backward_cuda(                                 \
+    std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_##ADD##_##MUL##_backward_cuda(                                 \
             const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,                   \
             const Tensor &relation, const Tensor &input, const Tensor &output, const Tensor &output_grad) { \
         return rspmm_backward_cuda<NARYOP, BINARYOP>(edge_index, edge_type, edge_weight, edge_attr, relation, input,   \

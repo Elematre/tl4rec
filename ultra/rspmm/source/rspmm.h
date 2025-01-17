@@ -22,86 +22,86 @@ Tensor ind2ptr(const Tensor &index, int size);
 Tensor rspmm_add_mul_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_add_mul_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_add_mul_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_min_mul_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_min_mul_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_min_mul_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_max_mul_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_max_mul_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_max_mul_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_add_add_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_add_add_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_add_add_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_min_add_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_min_add_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_min_add_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_max_add_forward_cpu(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_max_add_backward_cpu(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_max_add_backward_cpu(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 #ifdef CUDA_OP
 Tensor rspmm_add_mul_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_add_mul_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation, 
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_add_mul_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_min_mul_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_min_mul_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_min_mul_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_max_mul_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_max_mul_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_max_mul_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_add_add_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_add_add_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_add_add_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_min_add_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_min_add_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_min_add_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 
 Tensor rspmm_max_add_forward_cuda(const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr,
                                  const Tensor &relation, const Tensor &input);
 
-std::tuple<Tensor, Tensor, Tensor> rspmm_max_add_backward_cuda(
-        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &relation,
+std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_max_add_backward_cuda(
+        const Tensor &edge_index, const Tensor &edge_type, const Tensor &edge_weight, const Tensor &edge_attr, const Tensor &relation,
         const Tensor &input, const Tensor &output, const Tensor &output_grad);
 #endif
 
