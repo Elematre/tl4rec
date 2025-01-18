@@ -33,10 +33,13 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
     int64_t *col_ind_buf = buffer;
     int64_t *layer_ind_buf = buffer + blockDim.y * warpSize;
     scalar_t *weight_buf = reinterpret_cast<scalar_t *>(layer_ind_buf + blockDim.y * warpSize);
+    scalar_t *edge_attr_buf = reinterpret_cast<scalar_t *>(weight_buf + blockDim.y * warpSize);
     // used to get the base address per thread
     col_ind_buf += threadIdx.y * warpSize;
     layer_ind_buf += threadIdx.y * warpSize;
     weight_buf += threadIdx.y * warpSize;
+    edge_attr_buf += threadIdx.y * warpSize * edge_attr_dim;
+    
 
     int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
     if (row >= num_row)
@@ -55,11 +58,10 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
             col_ind_buf[threadIdx.x] = col_ind[ptr];
             layer_ind_buf[threadIdx.x] = layer_ind[ptr];
             weight_buf[threadIdx.x] = weight[ptr];
-        }
-        if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-            printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
-            printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
-            printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
+            for (int d = 0; d < edge_attr_dim; ++d) {
+                edge_attr_buf[threadIdx.x * edge_attr_dim + d] = edge_attr[ptr * edge_attr_dim + d];
+            }
+
         }
 
         __syncwarp();
@@ -70,17 +72,14 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
 
+
             // weight_buf[offset_ptr] = weight[ptr]; where ptr=  block_ptr + offset_ptr;
             //--> weight_buf[offset_ptr] = weight[block_ptr + offset_ptr];
-
             // Pointer to the edge attributes for this edge
-            const scalar_t *attr_ptr = edge_attr + (block_ptr + offset_ptr) * edge_attr_dim;
-            //const scalar_t *attr_ptr = edge_attr + ptr * edge_attr_dim;
-
-            if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-                printf("offset_ptr %d: %f\n", offset_ptr);
-            }
-
+            // this is correct if we dont want to write edge_attr into shared memory
+            //const scalar_t *attr_ptr = edge_attr + (block_ptr + offset_ptr) * edge_attr_dim;
+           
+            scalar_t *edge_attr_base = edge_attr_buf + offset_ptr * edge_attr_dim;
 
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
@@ -89,23 +88,11 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
                     break;
 
                  // Use edge_attr directly in the distmult computation
-        
-                scalar_t edge_attr_value = attr_ptr[d % edge_attr_dim]; // Use modulo to map dim to edge_attr features
-
-
-                if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-                    printf("attr_ptr[%d]: %f\n", d % edge_attr_dim, edge_attr_value);
-                    printf("input[%d]: %f\n", col * dim + d, input[col * dim + d]);
-                }
-
+                scalar_t edge_attr_value = edge_attr_base[d % edge_attr_dim];
+                //scalar_t edge_attr_value = attr_ptr[d % edge_attr_dim]; // Use modulo to map dim to edge_attr features
                 scalar_t x = BinaryOp::forward(edge_attr_value, input[col * dim + d]);
                 scalar_t y = w * x;
 
-                if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-                    printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
-                    printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
-                    printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
-                }
                 out[i] = NaryOp::forward(out[i], y);
             }
         }
@@ -117,11 +104,6 @@ void rspmm_forward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, cons
         int64_t d = d_start + i * warpSize;
         if (d >= dim)
             break;
-        if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-            printf("row_ptr[%d]: %lld\n", row, row_ptr[row]);
-            printf("col_ind_buf[%d]: %lld\n", threadIdx.x, col_ind_buf[threadIdx.x]);
-            printf("weight_buf[%d]: %f\n", threadIdx.x, weight_buf[threadIdx.x]);
-        }
         output[row * dim + d] = out[i];
     }
 }
@@ -140,9 +122,11 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
     int64_t *col_ind_buf = buffer;
     int64_t *layer_ind_buf = col_ind_buf + blockDim.y * warpSize;
     scalar_t *weight_buf = reinterpret_cast<scalar_t *>(layer_ind_buf + blockDim.y * warpSize);
+    scalar_t *edge_attr_buf = reinterpret_cast<scalar_t *>(weight_buf + blockDim.y * warpSize);
     col_ind_buf += threadIdx.y * warpSize;
     layer_ind_buf += threadIdx.y * warpSize;
     weight_buf += threadIdx.y * warpSize;
+    edge_attr_buf += threadIdx.y * warpSize * edge_attr_dim;
 
     int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
     if (row >= num_row)
@@ -157,6 +141,9 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             col_ind_buf[threadIdx.x] = col_ind[ptr];
             layer_ind_buf[threadIdx.x] = layer_ind[ptr];
             weight_buf[threadIdx.x] = weight[ptr];
+            for (int d = 0; d < edge_attr_dim; ++d) {
+                edge_attr_buf[threadIdx.x * edge_attr_dim + d] = edge_attr[ptr * edge_attr_dim + d];
+            }
         }
         __syncwarp();
 
@@ -165,15 +152,18 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             int64_t col = col_ind_buf[offset_ptr];
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
+            scalar_t *edge_attr_base = edge_attr_buf + offset_ptr * edge_attr_dim;
+
             scalar_t w_grad = 0;
             const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
-            scalar_t *attr_grad_ptr = edge_attr_grad + offset_ptr * edge_attr_dim;
+            scalar_t *attr_grad_ptr = edge_attr_grad + (block_ptr + offset_ptr) * edge_attr_dim;
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
                 int64_t d = d_start + i * warpSize;
                 if (d >= dim)
                     break;
-                scalar_t attr_value = attr_ptr[d % edge_attr_dim];
+
+                scalar_t attr_value = edge_attr_base[d % edge_attr_dim];
                 scalar_t in = input[col * dim + d];
                 scalar_t out = output[row * dim + d];
                 scalar_t out_grad = output_grad[row * dim + d];
@@ -211,9 +201,11 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
     int64_t *col_ind_buf = buffer;
     int64_t *layer_ind_buf = col_ind_buf + blockDim.y * warpSize;
     scalar_t *weight_buf = reinterpret_cast<scalar_t *>(layer_ind_buf + blockDim.y * warpSize);
+    scalar_t *edge_attr_buf = reinterpret_cast<scalar_t *>(weight_buf + blockDim.y * warpSize);
     col_ind_buf += threadIdx.y * warpSize;
     layer_ind_buf += threadIdx.y * warpSize;
     weight_buf += threadIdx.y * warpSize;
+    edge_attr_buf += threadIdx.y * warpSize * edge_attr_dim;
 
     int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
     if (row >= num_row)
@@ -228,6 +220,9 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             col_ind_buf[threadIdx.x] = col_ind[ptr];
             layer_ind_buf[threadIdx.x] = layer_ind[ptr];
             weight_buf[threadIdx.x] = weight[ptr];
+            for (int d = 0; d < edge_attr_dim; ++d) {
+                edge_attr_buf[threadIdx.x * edge_attr_dim + d] = edge_attr[ptr * edge_attr_dim + d];
+            }
         }
         __syncwarp();
 
@@ -236,14 +231,17 @@ void rspmm_backward_out_cuda(const int64_t *row_ptr, const int64_t *col_ind, con
             int64_t col = col_ind_buf[offset_ptr];
             int64_t layer = layer_ind_buf[offset_ptr];
             scalar_t w = weight_buf[offset_ptr];
+            scalar_t *edge_attr_base = edge_attr_buf + offset_ptr * edge_attr_dim;
+
+            
             const scalar_t *attr_ptr = edge_attr + offset_ptr * edge_attr_dim;
-            scalar_t *attr_grad_ptr = edge_attr_grad + offset_ptr * edge_attr_dim;
+            scalar_t *attr_grad_ptr = edge_attr_grad + (block_ptr + offset_ptr) * edge_attr_dim;
 #pragma unroll
             for (int64_t i = 0; i < kCoarseningFactor; i++) {
                 int64_t d = d_start + i * warpSize;
                 if (d >= dim)
                     break;
-                scalar_t attr_value = attr_ptr[d % edge_attr_dim];
+                scalar_t attr_value = edge_attr_base[d % edge_attr_dim];
                 scalar_t in = input[col * dim + d];
                 scalar_t out = output[row * dim + d];
                 scalar_t out_grad = output_grad[row * dim + d];
@@ -299,7 +297,7 @@ Tensor rspmm_forward_cuda(const Tensor &edge_index_, const Tensor &edge_type_, c
     const int num_row_block = (num_row + row_per_block - 1) / row_per_block;
 
     AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rspmm_forward_cuda", [&] {
-        const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t));
+        const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t) + edge_attr_dim * sizeof(scalar_t));
         rspmm_forward_out_cuda<scalar_t, NaryOp<scalar_t>, BinaryOp<scalar_t>>
             <<<dim3(num_row_block, num_dim_block), dim3(dim_per_block, row_per_block), memory_size, stream>>>(
             row_ptr.data_ptr<int64_t>(),
@@ -367,7 +365,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_backward_cuda(
 
     if (edge_weight.requires_grad())
         AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rspmm_backward_cuda", [&] {
-            const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t));
+            const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t) + edge_attr_dim * sizeof(scalar_t));
             rspmm_backward_out_cuda<scalar_t, NaryOp<scalar_t>, BinaryOp<scalar_t>>
                 <<<dim3(num_row_block, num_dim_block), dim3(dim_per_block, row_per_block), memory_size, stream>>>(
                 row_ptr.data_ptr<int64_t>(),
@@ -388,7 +386,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> rspmm_backward_cuda(
         });
     else
         AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rspmm_backward_cuda", [&] {
-            const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t));
+            const int memory_size = kThreadPerBlock * (sizeof(int64_t) * 2 + sizeof(scalar_t) + edge_attr_dim * sizeof(scalar_t));
             rspmm_backward_out_cuda<scalar_t, NaryOp<scalar_t>, BinaryOp<scalar_t>>
                 <<<dim3(num_row_block, num_dim_block), dim3(dim_per_block, row_per_block), memory_size, stream>>>(
                 row_ptr.data_ptr<int64_t>(),
