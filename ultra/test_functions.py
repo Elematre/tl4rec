@@ -5,6 +5,42 @@ import torch
 import random
 
 
+def debug_edge_attr_alignment(train_data, batch_with_attr):
+    """
+    Verify that edge attributes in batch_with_attr align with train_data.target_edge_attr.
+    
+    Args:
+        train_data: The data object containing target_edge_index and target_edge_attr.
+        batch_with_attr: Tensor containing edges and their corresponding attributes from the loader.
+    """
+    target_edge_index = train_data.target_edge_index.t()  # (num_edges, 2)
+    target_edge_attr = train_data.target_edge_attr  # (num_edges, attr_dim)
+    
+    target_edge = batch_with_attr[:, :3]  # (batch_size, 3) -> [u, v, r]
+    batch_attr = batch_with_attr[:, 3:]  # (batch_size, attr_dim)
+
+    for i, edge in enumerate(target_edge):
+        u, v, _ = edge.tolist()  # Extract u and v; ignore r
+        batch_attr_value = batch_attr[i]  # Corresponding attribute in batch
+        
+        # Naively search for the edge in target_edge_index
+        found_idx = -1
+        for idx, target_edge_pair in enumerate(target_edge_index):
+            if target_edge_pair[0] == u and target_edge_pair[1] == v:
+                found_idx = idx
+                break
+        
+        # If edge is found, compare the attributes
+        if found_idx != -1:
+            target_attr_value = target_edge_attr[found_idx]
+            assert torch.allclose(batch_attr_value, target_attr_value), (
+                f"Mismatch at edge {u, v}: "
+                f"batch_attr={batch_attr_value}, target_attr={target_attr_value}"
+            )
+        else:
+            print(f"Edge {u, v} not found in target_edge_index.")
+    
+    print("Debug/test completed: all attributes match.")
 
 def test_edge_feature_alignment(edge_index, df_features):
     """

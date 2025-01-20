@@ -21,8 +21,8 @@ class GeneralizedRelationalConv(MessagePassing):
     # TODO for compile() - doesn't work currently
     # propagate_type = {"edge_index": torch.LongTensor, "size": Tuple[int, int]}
 
-    def __init__(self, input_dim, output_dim, num_relation, query_input_dim, message_func="distmult",
-                 aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_relations=False, relation_input_dim = 0):
+    def __init__(self, input_dim, output_dim, num_relation, query_input_dim, conv_emb_dim, message_func="distmult",
+                 aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_conv_emb=False, relation_input_dim = 0):
         super(GeneralizedRelationalConv, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -31,8 +31,8 @@ class GeneralizedRelationalConv(MessagePassing):
         self.message_func = message_func
         self.aggregate_func = aggregate_func
         self.dependent = dependent
-        self.project_relations = project_relations
         self.relation_input_dim = relation_input_dim
+        self.project_conv_emb = project_conv_emb
 
         if layer_norm:
             self.layer_norm = nn.LayerNorm(output_dim)
@@ -48,43 +48,26 @@ class GeneralizedRelationalConv(MessagePassing):
         else:
             self.linear = nn.Linear(input_dim * 2, output_dim)
 
-        if dependent:
-            # obtain relation embeddings as a projection of the query relation
-            self.relation_linear = nn.Linear(query_input_dim, num_relation * input_dim)
-        else:
-            if not self.project_relations:
-                # relation embeddings as an independent embedding matrix per each layer
-                self.relation = nn.Embedding(num_relation, input_dim)
-            else:
-                # will be initialized after the pass over relation graph
-                self.relation = None
-                # instead of adding zeros to the query we could change the projection here
-                self.relation_projection = nn.Sequential(
-                    nn.Linear(self.relation_input_dim, input_dim),
+        if self.project_conv_emb:
+            self.proj_conv_emb = nn.Sequential(
+                    nn.Linear(conv_emb_dim, conv_emb_dim),
                     nn.ReLU(),
-                    nn.Linear(input_dim, input_dim)
+                    nn.Linear(conv_emb_dim, conv_emb_dim)
                 )
-
+  
+           
 
     def forward(self, input, query, boundary, edge_index, edge_type, conv_edge_embedding, size, edge_weight=None):
         batch_size = len(query)
         #print (f"conv_edge_embedding.shape: {conv_edge_embedding.shape}")
         #raise NotImplementedError
-        if self.dependent:
-            # layer-specific relation features as a projection of input "query" (relation) embeddings
-            relation = self.relation_linear(query).view(batch_size, self.num_relation, self.input_dim)
-        else:
-            if not self.project_relations:
-                # layer-specific relation features as a special embedding matrix unique to each layer
-                relation = self.relation.weight.expand(batch_size, -1, -1)
-            else:
-                # NEW and only change: 
-                # projecting relation features to unique features for this layer, then resizing for the current batch
-                relation = self.relation_projection(self.relation) 
-                # relation : (bs, num_relation, input_dim)
+        if self.project_conv_emb:
+            conv_edge_embedding = self.proj_conv_emb(conv_edge_embedding)
+
+        # relation : (bs, num_relation, input_dim)
         if edge_weight is None:
             edge_weight = torch.ones(len(edge_type), device=input.device)
-
+        relation = torch.zeros(input.size(0), 2, input.size(2), device=input.device)
         #todo Edge_attr
         # note that we send the initial boundary condition (node states at layer0) to the message passing
         # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf

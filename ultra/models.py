@@ -33,7 +33,7 @@ class Gru_Ultra(nn.Module):
             self.ultra = Ultra(cfg, log)
         self.log = log
         
-    def forward(self, data, batch):
+    def forward(self, data, batch, target_edge_attr):
         num_users = data.num_users
         num_items = data.num_items
         
@@ -49,9 +49,10 @@ class Gru_Ultra(nn.Module):
             
         if self.edge_features:
             conv_edge_projection = self.edge_projection(data.edge_attr)
+            target_edge_projections= self.edge_projection(target_edge_attr)
         else:
             raise NotImplementedError
-        score = self.ultra(data, batch, user_projection, item_projection, conv_edge_projection)
+        score = self.ultra(data, batch, user_projection, item_projection, conv_edge_projection, target_edge_projections)
         # what does score look like? score (batch_size, 1 + num negatives)
         
         return score
@@ -76,15 +77,16 @@ class Ultra(nn.Module):
             raise NotImplementedError
             
         self.log = log
+        edge_emb_dim = cfg.backbone_model.embedding_edge["hidden_dims"][0]
         # adding a bit more flexibility to initializing proper rel/ent classes from the configs
         # globals() contains all global class variable 
         # rel_model_cfg.pop('class') pops the class name from the cfg thus combined it returns the class
         # **rel_model_cfg contains dict of cfg file
         simple_model_cfg= cfg.backbone_model.simple_model
-        self.simple_model = globals()[simple_model_cfg.pop('class')](**simple_model_cfg)
+        self.simple_model = globals()[simple_model_cfg.pop('class')](edge_emb_dim, **simple_model_cfg)
 
         
-    def forward(self, data, batch, user_projection, item_projection, conv_edge_projection):
+    def forward(self, data, batch, user_projection, item_projection, conv_edge_projection, target_edge_projections):
         # calculate embeddings
         
         num_users = data.num_users
@@ -101,8 +103,9 @@ class Ultra(nn.Module):
             item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
         if self.edge_features:
             conv_edge_embedding = self.edge_mlp(conv_edge_projection) 
+            target_edge_embedding = self.edge_mlp(target_edge_projections) 
         
-        score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding)
+        score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding)
         # score (batch_size, 1 + num negatives)
         
         return score
@@ -111,20 +114,22 @@ class Ultra(nn.Module):
 
 class SimpleNBFNet(BaseNBFNet):
 
-    def __init__(self, input_dim, hidden_dims, num_relation=2, **kwargs):
+    def __init__(self, edge_emb_dim, input_dim, hidden_dims, num_relation=2, **kwargs):
         super().__init__(input_dim, hidden_dims, num_relation, **kwargs)
 
         self.layers = nn.ModuleList()
         # maybe remove activation function
         self.activation = None
         self.concat_hidden = True
+        self.project_conv_emb = kwargs.get('project_conv_emb', False)
+        print(f"self.project_conv_emb {self.project_conv_emb}")
         
         for i in range(len(self.dims) - 1):
             self.layers.append(
                 layers.GeneralizedRelationalConv(
                     self.dims[i], self.dims[i + 1], num_relation,
-                    self.dims[0], self.message_func, self.aggregate_func, self.layer_norm,
-                    self.activation, dependent=False)
+                    self.dims[0], edge_emb_dim, self.message_func, self.aggregate_func, self.layer_norm,
+                    self.activation, dependent=False, project_conv_emb = self.project_conv_emb)
                 )
 
         feature_dim = (sum(hidden_dims) if self.concat_hidden else hidden_dims[-1]) + input_dim
@@ -137,45 +142,33 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, conv_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+    def bellmanford(self, data, conv_edge_embedding, target_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+        
+        
+        # initialize queries with target_edge_embedding repeated to match the boundary_dim
         user_embedding.to(device=h_index.device)
         item_embedding.to(device=h_index.device)
         h_embeddings.to(device=h_index.device)
         batch_size = len(h_index)
-        
-        # initialize queries (relation types of the given triples)
-        # Must adjust size of queries since we add the 16 bit embeddings 
-        # in the hidden layers we project (expected input dim) the queries for further calculations
         input_dim = self.dims[0]
-        embedding_dim = user_embedding.size(1)
+        edge_embedding_dim = target_edge_embedding.size(1)
+        # Repeat and concatenate target_edge_embedding to match input_dim
+        repeat_factor = input_dim // edge_embedding_dim
+        query = target_edge_embedding.repeat(1, repeat_factor)  # (batch_size, input_dim)
         
-        # first part of the query vector will be concatenated with head_embedding 
-        query_temp = torch.ones(h_index.shape[0], input_dim - embedding_dim, device=h_index.device, dtype=torch.float)
-    
+        #print(f"edge_embedding_dim {edge_embedding_dim}")
+        #print(f"query.shape {query.shape}")
+        #raise ValueError("until here only")
 
-        # query with head_embeddings
-        # Compress h_embeddings to (batch_size, input_dim - query_size) by taking the first column since all head_embeddings are consistent in each batch
-        compressed_h_embeddings = h_embeddings[:, 0, :]
-        query = torch.cat([query_temp, compressed_h_embeddings], dim=1)
-        
-        # query without head_embeddings used for scatteradd
-        zeros = torch.zeros(batch_size, embedding_dim, dtype=query_temp.dtype, device=h_index.device)  # Create zeros on the same device as h_index
-        query_zero = torch.cat([query_temp, zeros], dim=1)  # Concatenate along the second dimension
-        
-        index = h_index.unsqueeze(-1).expand_as(query)
+    
 
 
         # Initialize all node states as zeros
-        boundary = torch.zeros(batch_size, data.num_nodes, input_dim, device=h_index.device)  # size is 32 (16 + 16)
+        boundary = torch.zeros(batch_size, data.num_nodes, input_dim, device=h_index.device)  
+        # Set the boundary condition for query head nodes
+        index = h_index.unsqueeze(-1).expand(-1, input_dim)
+        boundary.scatter_add_(1, index.unsqueeze(1), query.unsqueeze(1))
         
-        # Append node embeddings for all nodes (user and item)
-        embedding_index= input_dim - embedding_dim 
-        all_embeddings = torch.cat([user_embedding, item_embedding], dim=0)  # Combine user and item embeddings (dim: num_nodes x 16)
-        boundary[:, :, embedding_index:] = all_embeddings  # Fill the last 16 dimensions with node embeddings
-        
-        boundary.scatter_add_(1, index.unsqueeze(1), query_zero.unsqueeze(1))  # Add relation embeddings to the first 16 entries
-        
-
         
         size = (data.num_nodes, data.num_nodes)
         edge_weight = torch.ones(data.num_edges, device=h_index.device)
@@ -206,7 +199,7 @@ class SimpleNBFNet(BaseNBFNet):
             "edge_weights": edge_weights,
         }
 
-    def forward(self, data, batch, user_embedding, item_embedding, conv_edge_embedding):
+    def forward(self, data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding):
         h_index, t_index, r_index = batch.unbind(-1)
         batch_size = batch.shape[0]
         num_users = user_embedding.shape[0]
@@ -251,7 +244,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, conv_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, conv_edge_embedding, target_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states

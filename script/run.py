@@ -36,9 +36,19 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     rank = util.get_rank()
     wandb_on = cfg.train["wandb"]
 
-    train_triplets = torch.cat([train_data.target_edge_index, train_data.target_edge_type.unsqueeze(0)]).t()
-    sampler = torch_data.DistributedSampler(train_triplets, world_size, rank)
-    train_loader = torch_data.DataLoader(train_triplets, cfg.train.batch_size, sampler=sampler)
+    num_edges = train_data.target_edge_index.size(1)  # Number of edges
+    edge_indices = torch.arange(num_edges,dtype=torch.int64, device=train_data.target_edge_index.device).unsqueeze(1)  # Shape: (num_edges, 1)
+
+    # Concatenate along the second dimension
+    target_triplets_with_idx = torch.cat([
+        train_data.target_edge_index.t(),  # Shape: (num_edges, 2)
+        train_data.target_edge_type.unsqueeze(1),   # Shape: (num_edges, 1)
+        edge_indices    # Shape: (num_edges, attr_dim)
+    ], dim=1)  # Final Shape: (num_edges, 2 + 1 + attr_dim)
+
+    
+    sampler = torch_data.DistributedSampler(target_triplets_with_idx, world_size, rank)
+    train_loader = torch_data.DataLoader(target_triplets_with_idx, cfg.train.batch_size, sampler=sampler)
 
     batch_per_epoch = batch_per_epoch or len(train_loader)
     
@@ -88,10 +98,18 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
             losses = []
             sampler.set_epoch(epoch)
-            for batch in islice(train_loader, batch_per_epoch):
-                batch = tasks.negative_sampling(train_data, batch, cfg.task.num_negative,
+            for batch_with_idx in islice(train_loader, batch_per_epoch):
+                target_edge = batch_with_idx[:,:3]
+                edge_indices = batch_with_idx[:, 3].long()
+                target_edge_attr = train_data.target_edge_attr[edge_indices,:]
+                #print (f"batch_with_attr.shape: {batch_with_attr.shape}")
+                #print (f"target_edge.shape: {target_edge.shape}")
+                #print (f"target_edge_attr.shape: {target_edge_attr.shape}")
+                #test_functions.debug_edge_attr_alignment(train_data, torch.cat([target_edge,target_edge_attr], dim = 1))
+                #raise ValueError("until here only")
+                batch = tasks.negative_sampling(train_data, target_edge, cfg.task.num_negative,
                                                 strict=cfg.task.strict_negative)
-                pred = parallel_model(train_data, batch)
+                pred = parallel_model(train_data, batch, target_edge_attr)
                 target = torch.zeros_like(pred)
                 target[:, 0] = 1
                 # loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
@@ -203,10 +221,20 @@ def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_
     rank = util.get_rank()
     num_users = test_data.num_users
     wandb_on = cfg.train["wandb"]
-        
-    test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
-    sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
-    test_loader = torch_data.DataLoader(test_triplets, cfg.train.test_batch_size, sampler=sampler)
+
+    # Generate a linear index tensor for the edges
+    num_edges = test_data.target_edge_index.size(1)  
+    edge_indices = torch.arange(num_edges, dtype=torch.int64, device=test_data.target_edge_index.device).unsqueeze(1)  # Shape: (num_edges, 1)
+
+    # Concatenate test triplets with the edge index
+    test_triplets_with_index = torch.cat([
+        test_data.target_edge_index.t(),  # Shape: (num_edges, 2)
+        test_data.target_edge_type.unsqueeze(1),  # Shape: (num_edges, 1)
+        edge_indices  # Shape: (num_edges, 1)
+    ], dim=1)  # Final Shape: (num_edges, 2 + 1 + 1)
+    
+    sampler = torch_data.DistributedSampler(test_triplets_with_index, world_size, rank)
+    test_loader = torch_data.DataLoader(test_triplets_with_index, cfg.train.test_batch_size, sampler=sampler)
     model.eval()
     rankings = []
     num_negatives = []
@@ -214,7 +242,13 @@ def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_
     tail_ndcgs = []
     k = 20 # could be optimized
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
-    for batch in test_loader:
+    for batch_with_idx in test_loader:
+        batch = batch_with_idx[:,:3]
+        edge_indices = batch_with_idx[:, 3].long()
+        target_edge_attr = test_data.target_edge_attr[edge_indices,:]
+        
+        #test_functions.debug_edge_attr_alignment(test_data, torch.cat([batch,target_edge_attr], dim = 1))
+        #raise ValueError("until here only")
         pos_h_index, pos_t_index, pos_r_index = batch.t()
         batch_size = batch.size(0)           
         
@@ -228,8 +262,8 @@ def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_
         h_batch = batch_sampled[batch_size:, :, :]
         
         # Get predictions for the sampled negatives
-        t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, nr_eval_negs+ 1)
-        h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, nr_eval_negs +1 )
+        t_pred_batch = model(test_data, t_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs+ 1)
+        h_pred_batch = model(test_data, h_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs +1 )
         
         # t_relevance and h_relevance: Binary relevance labels
         t_relevance = torch.zeros((batch_size, nr_eval_negs + 1), device=batch.device)
@@ -372,9 +406,19 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     num_users = test_data.num_users
     wandb_on = cfg.train["wandb"]
         
-    test_triplets = torch.cat([test_data.target_edge_index, test_data.target_edge_type.unsqueeze(0)]).t()
-    sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
-    test_loader = torch_data.DataLoader(test_triplets, cfg.train.test_batch_size, sampler=sampler)
+    # Generate a linear index tensor for the edges
+    num_edges = test_data.target_edge_index.size(1)  
+    edge_indices = torch.arange(num_edges, dtype=torch.int64, device=test_data.target_edge_index.device).unsqueeze(1)  # Shape: (num_edges, 1)
+
+    # Concatenate test triplets with the edge index
+    test_triplets_with_index = torch.cat([
+        test_data.target_edge_index.t(),  # Shape: (num_edges, 2)
+        test_data.target_edge_type.unsqueeze(1),  # Shape: (num_edges, 1)
+        edge_indices  # Shape: (num_edges, 1)
+    ], dim=1)  # Final Shape: (num_edges, 2 + 1 + 1)
+    
+    sampler = torch_data.DistributedSampler(test_triplets_with_index, world_size, rank)
+    test_loader = torch_data.DataLoader(test_triplets_with_index, cfg.train.test_batch_size, sampler=sampler)
     model.eval()
     rankings = []
     num_negatives = []
@@ -382,9 +426,15 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     tail_ndcgs = []
     k = 20 # could be optimized
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
-    for batch in test_loader:
+    for batch_with_idx in test_loader:
+        batch = batch_with_idx[:,:3]
+        edge_indices = batch_with_idx[:, 3].long()
+        target_edge_attr = test_data.target_edge_attr[edge_indices,:]
+        #test_functions.debug_edge_attr_alignment(test_data, torch.cat([batch,target_edge_attr], dim = 1))
+        #raise ValueError("until here only")
+        
         if nr_eval_negs == -1:
-            t_batch, h_batch = tasks.all_negative(test_data, batch)
+            t_batch, h_batch = tasks.all_negative(test_data, batch, target_edge_attr)
             t_pred = model(test_data, t_batch)
             h_pred = model(test_data, h_batch)
             #t_pred= (bs, num_nodes)
@@ -405,8 +455,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             h_batch = batch_sampled[batch_size:, :, :]
             
             # Get predictions for the sampled negatives
-            t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, 101)
-            h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, 101)
+            t_pred_batch = model(test_data, t_batch, target_edge_attr)  # Shape: (batch_size, 101)
+            h_pred_batch = model(test_data, h_batch, target_edge_attr)  # Shape: (batch_size, 101)
             
             # Use scatter to populate t_pred and h_pred efficiently
             # Extract the tail indices from t_batch and head indices from h_batch
@@ -637,16 +687,6 @@ if __name__ == "__main__":
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         model.ultra.load_state_dict(state["model"])
-        # initialize linear weights:
-        def weights_init(m):
-                if isinstance(m, nn.Linear):
-                    nn.init.xavier_uniform_(m.weight)
-                    if m.bias is not None:
-                        nn.init.zeros_(m.bias)
-        
-        # Apply the weight initialization
-        model.user_projection.apply(weights_init)
-        model.item_projection.apply(weights_init)
     
 
     #model = pyg.compile(model, dynamic=True)
