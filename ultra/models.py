@@ -129,7 +129,7 @@ class SimpleNBFNet(BaseNBFNet):
                 layers.GeneralizedRelationalConv(
                     self.dims[i], self.dims[i + 1], num_relation,
                     self.dims[0], edge_emb_dim, self.message_func, self.aggregate_func, self.layer_norm,
-                    self.activation, dependent=False, project_conv_emb = self.project_conv_emb)
+                    self.activation, project_conv_emb = self.project_conv_emb)
                 )
 
         feature_dim = (sum(hidden_dims) if self.concat_hidden else hidden_dims[-1]) + input_dim

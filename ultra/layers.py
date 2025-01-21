@@ -22,7 +22,7 @@ class GeneralizedRelationalConv(MessagePassing):
     # propagate_type = {"edge_index": torch.LongTensor, "size": Tuple[int, int]}
 
     def __init__(self, input_dim, output_dim, num_relation, query_input_dim, conv_emb_dim, message_func="distmult",
-                 aggregate_func="pna", layer_norm=False, activation="relu", dependent=False, project_conv_emb=False, relation_input_dim = 0):
+                 aggregate_func="pna", layer_norm=False, activation="relu", project_conv_emb=False,):
         super(GeneralizedRelationalConv, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -30,8 +30,6 @@ class GeneralizedRelationalConv(MessagePassing):
         self.query_input_dim = query_input_dim
         self.message_func = message_func
         self.aggregate_func = aggregate_func
-        self.dependent = dependent
-        self.relation_input_dim = relation_input_dim
         self.project_conv_emb = project_conv_emb
 
         if layer_norm:
@@ -64,14 +62,11 @@ class GeneralizedRelationalConv(MessagePassing):
         if self.project_conv_emb:
             conv_edge_embedding = self.proj_conv_emb(conv_edge_embedding)
 
-        # relation : (bs, num_relation, input_dim)
         if edge_weight is None:
             edge_weight = torch.ones(len(edge_type), device=input.device)
-        relation = torch.zeros(input.size(0), 2, input.size(2), device=input.device)
         #todo Edge_attr
         # note that we send the initial boundary condition (node states at layer0) to the message passing
-        # correspond to Eq.6 on p5 in https://arxiv.org/pdf/2106.06935.pdf
-        output = self.propagate(input=input, relation=relation, boundary=boundary, edge_index=edge_index,
+        output = self.propagate(input=input, boundary=boundary, edge_index=edge_index,
                                 edge_type=edge_type, size=size, edge_weight=edge_weight, edge_attr = conv_edge_embedding)
         return output
 
@@ -173,7 +168,7 @@ class GeneralizedRelationalConv(MessagePassing):
 
         return output
 
-    def message_and_aggregate(self, edge_index, input, relation, boundary, edge_type, edge_weight, edge_attr, index, dim_size):
+    def message_and_aggregate(self, edge_index, input, boundary, edge_type, edge_weight, edge_attr, index, dim_size):
         
         # fused computation of message and aggregate steps with the custom rspmm cuda kernel
         # speed up computation by several times
@@ -184,7 +179,6 @@ class GeneralizedRelationalConv(MessagePassing):
 
         batch_size, num_node = input.shape[:2]
         input = input.transpose(0, 1).flatten(1)
-        relation = relation.transpose(0, 1).flatten(1)
         boundary = boundary.transpose(0, 1).flatten(1)
         degree_out = degree(index, dim_size).unsqueeze(-1) + 1
 
@@ -193,23 +187,23 @@ class GeneralizedRelationalConv(MessagePassing):
         else:
             raise ValueError("Unknown message function `%s`" % self.message_func)
         if self.aggregate_func == "sum":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, input, sum="add", mul=mul)
             update = update + boundary
         elif self.aggregate_func == "mean":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, input, sum="add", mul=mul)
             update = (update + boundary) / degree_out
         elif self.aggregate_func == "max":
-            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr,  relation, input, sum="max", mul=mul)
+            update = generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, input, sum="max", mul=mul)
             update = torch.max(update, boundary)
         elif self.aggregate_func == "pna":
             raise NotImplementedError
             # we use PNA with 4 aggregators (mean / max / min / std)
             # and 3 scalars (identity / log degree / reciprocal of log degree)
-            sum = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="add", mul=mul)
-            sq_sum = generalized_rspmm(edge_index, edge_type, edge_weight, relation ** 2, input ** 2, sum="add",
+            sum = generalized_rspmm(edge_index, edge_type, edge_weight, input, sum="add", mul=mul)
+            sq_sum = generalized_rspmm(edge_index, edge_type, edge_weight, input ** 2, sum="add",
                                        mul=mul)
-            max = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="max", mul=mul)
-            min = generalized_rspmm(edge_index, edge_type, edge_weight, relation, input, sum="min", mul=mul)
+            max = generalized_rspmm(edge_index, edge_type, edge_weight, input, sum="max", mul=mul)
+            min = generalized_rspmm(edge_index, edge_type, edge_weight, input, sum="min", mul=mul)
             mean = (sum + boundary) / degree_out
             sq_mean = (sq_sum + boundary ** 2) / degree_out
             max = torch.max(max, boundary)

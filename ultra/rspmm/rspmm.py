@@ -11,7 +11,8 @@ module = sys.modules[__name__]
 class RSPMMAddMulFunction(autograd.Function):
 
     @staticmethod
-    def forward(ctx, edge_index, edge_type, edge_weight, edge_attr, relation, input):
+    def forward(ctx, edge_index, edge_type, edge_weight, edge_attr, input):
+        edge_attr = edge_attr.to(edge_index.device)
         #print (f"edge_index.shape: {edge_index.shape}")
         #raise ValueError("until here") 
         node_in, node_out = edge_index
@@ -22,35 +23,33 @@ class RSPMMAddMulFunction(autograd.Function):
             forward = rspmm.rspmm_add_mul_forward_cuda
         else:
             forward = rspmm.rspmm_add_mul_forward_cpu
-        output = forward(edge_index, edge_type, edge_weight, edge_attr, relation, input)
+        output = forward(edge_index, edge_type, edge_weight, edge_attr, input)
 
-        
-        # Move tensors to CPU for comparison
-        #edge_index_cpu = edge_index.cpu()
-        #edge_type_cpu = edge_type.cpu()
-        #edge_weight_cpu = edge_weight.cpu()
-        #edge_attr_cpu = edge_attr.cpu()
-        #relation_cpu = relation.cpu()
-        #input_cpu = input.cpu()
-
-        # Compute expected output using the CPU method
-        #forward_cpu = rspmm.rspmm_add_mul_forward_cpu
-        #expected_output = forward_cpu(
-         #   edge_index_cpu,
-          #  edge_type_cpu,
-           # edge_weight_cpu,
-            #edge_attr_cpu,
-        #    relation_cpu,
-         #   input_cpu
-        #)
-        # Move expected output to the original device for comparison
-        #expected_output = expected_output.to(input.device)
-
-        # Ensure outputs match
-        #assert torch.allclose(output, expected_output, atol=1e-6), "Output mismatch detected!"
-        #print("Output computation test passed successfully.")
-        #raise ValueError("until here") 
-        ctx.save_for_backward(edge_index, edge_type, edge_weight,edge_attr, relation, input, output)
+        if False:
+            # Move tensors to CPU for comparison
+            edge_index_cpu = edge_index.cpu()
+            edge_type_cpu = edge_type.cpu()
+            edge_weight_cpu = edge_weight.cpu()
+            edge_attr_cpu = edge_attr.cpu()
+            input_cpu = input.cpu()
+    
+            #Compute expected output using the CPU method
+            forward_cpu = rspmm.rspmm_add_mul_forward_cpu
+            expected_output = forward_cpu(
+                edge_index_cpu,
+                edge_type_cpu,
+                edge_weight_cpu,
+                edge_attr_cpu,
+                input_cpu
+            )
+            # Move expected output to the original device for comparison
+            expected_output = expected_output.to(input.device)
+    
+            # Ensure outputs match
+            assert torch.allclose(output, expected_output, atol=1e-6), "Output mismatch detected!"
+            print("Output computation test passed successfully.")
+            #raise ValueError("until here") 
+        ctx.save_for_backward(edge_index, edge_type, edge_weight,edge_attr, input, output)
         #ctx.save_for_backward(edge_index, edge_type, edge_weight, relation, input, output)
         return output
         
@@ -61,32 +60,33 @@ class RSPMMAddMulFunction(autograd.Function):
             backward = rspmm.rspmm_add_mul_backward_cuda
         else:
             backward = rspmm.rspmm_add_mul_backward_cpu
-        weight_grad, edge_attr_grad, relation_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
+        weight_grad, edge_attr_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
 
-        # Move tensors to CPU for comparison
-        #saved_tensors_cpu = [t.cpu() for t in ctx.saved_tensors]
-        #output_grad_cpu = output_grad.cpu()
-    
-        # Use the CPU method to compute the expected gradients
-        #backward_cpu = rspmm.rspmm_add_mul_backward_cpu
-        #expected_weight_grad, expected_edge_attr_grad, expected_relation_grad, expected_input_grad = backward_cpu(
-         #   *saved_tensors_cpu, output_grad_cpu
-        #)
-        # Move expected gradients to the original device for comparison
-        #expected_weight_grad = expected_weight_grad.to(output_grad.device)
-        #expected_edge_attr_grad = expected_edge_attr_grad.to(output_grad.device)
-        #expected_relation_grad = expected_relation_grad.to(output_grad.device)
-        #expected_input_grad = expected_input_grad.to(output_grad.device)
-    
-        # Validate the gradients
-        #assert torch.allclose(weight_grad, expected_weight_grad, atol=1e-6), "Weight gradients mismatch detected!"
-        #assert torch.allclose(edge_attr_grad, expected_edge_attr_grad, atol=1e-6), "Edge attribute gradients mismatch detected!"
-        #assert torch.allclose(relation_grad, expected_relation_grad, atol=1e-6), "Relation gradients mismatch detected!"
-        #assert torch.allclose(input_grad, expected_input_grad, atol=1e-6), "Input gradients mismatch detected!"
-        #print("Backward computation test passed successfully.")
+        if True:
+            # Move tensors to CPU for comparison
+            saved_tensors_cpu = [t.cpu() for t in ctx.saved_tensors]
+            output_grad_cpu = output_grad.cpu()
+        
+            # Use the CPU method to compute the expected gradients
+            backward_cpu = rspmm.rspmm_add_mul_backward_cpu
+            expected_weight_grad, expected_edge_attr_grad, expected_input_grad = backward_cpu(
+                *saved_tensors_cpu, output_grad_cpu
+            )
+            # Move expected gradients to the original device for comparison
+            expected_weight_grad = expected_weight_grad.to(output_grad.device)
+            expected_edge_attr_grad = expected_edge_attr_grad.to(output_grad.device)
+            #expected_relation_grad = expected_relation_grad.to(output_grad.device)
+            expected_input_grad = expected_input_grad.to(output_grad.device)
+        
+            # Validate the gradients
+            #assert torch.allclose(weight_grad, expected_weight_grad, atol=1e-6), "Weight gradients mismatch detected!"
+            assert torch.allclose(edge_attr_grad, expected_edge_attr_grad, atol=1e-6), "Edge attribute gradients mismatch detected!"
+            #assert torch.allclose(relation_grad, expected_relation_grad, atol=1e-6), "Relation gradients mismatch detected!"
+            assert torch.allclose(input_grad, expected_input_grad, atol=1e-6), "Input gradients mismatch detected!"
+            print("Backward computation test passed successfully.")
 
 
-        return None, None, weight_grad, edge_attr_grad, relation_grad, input_grad
+        return None, None, weight_grad, edge_attr_grad, input_grad
 
 
 class RSPMMMinMulFunction(autograd.Function):
@@ -220,7 +220,7 @@ class RSPMMMaxAddFunction(autograd.Function):
         return None, None, weight_grad, relation_grad, input_grad
 
 
-def generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, input, sum="add", mul="mul"):
+def generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, input, sum="add", mul="mul"):
     name = "RSPMM%s%sFunction" % (sum.capitalize(), mul.capitalize())
     if not hasattr(module, name):
         raise ValueError("No generalized rspmm implementation found for summation `%s` and multiplication `%s`"
@@ -232,7 +232,7 @@ def generalized_rspmm(edge_index, edge_type, edge_weight, edge_attr, relation, i
     key = node_in * (node_out.max() + 1) + node_out
     order = key.argsort()
 
-    return Function.apply(edge_index[:, order], edge_type[order], edge_weight[order], edge_attr [order, :], relation, input)
+    return Function.apply(edge_index[:, order], edge_type[order], edge_weight[order], edge_attr [order, :], input)
 
 
 def load_extension(name, sources, extra_cflags=None, extra_cuda_cflags=None, **kwargs):
