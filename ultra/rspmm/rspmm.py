@@ -36,6 +36,7 @@ class RSPMMAddMulFunction(autograd.Function):
         else:
             backward = rspmm.rspmm_add_mul_backward_cpu
         weight_grad, relation_grad, input_grad = backward(*ctx.saved_tensors, output_grad)
+
         return None, None, weight_grad, relation_grad, input_grad
 
 
