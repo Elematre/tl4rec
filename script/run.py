@@ -434,9 +434,9 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         #raise ValueError("until here only")
         
         if nr_eval_negs == -1:
-            t_batch, h_batch = tasks.all_negative(test_data, batch, target_edge_attr)
-            t_pred = model(test_data, t_batch)
-            h_pred = model(test_data, h_batch)
+            t_batch, h_batch = tasks.all_negative(test_data, batch)
+            t_pred = model(test_data, t_batch, target_edge_attr)
+            h_pred = model(test_data, h_batch, target_edge_attr)
             #t_pred= (bs, num_nodes)
         else:
             batch_size = batch.size(0)
