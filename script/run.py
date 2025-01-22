@@ -31,7 +31,6 @@ fine_tuning = False # wether we are fine-tuning
 def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
         return
-
     world_size = util.get_world_size()
     rank = util.get_rank()
     wandb_on = cfg.train["wandb"]
@@ -192,7 +191,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             result_dict["ndcg@20"] = 1
         else:
             #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
-            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 200)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
             for metric, score in result_dict.items():
@@ -654,10 +653,22 @@ if __name__ == "__main__":
     device = util.get_device(cfg)
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
+
+    # make datasets smaller if we dont use node_features
+    if not cfg.model.get("node_features", True):
+        train_data.x_user = None
+        train_data.x_item = None
+        valid_data.x_user = None
+        valid_data.x_item = None
+        test_data.x_user = None
+        test_data.x_item = None
+        print ("discarded some things")
+    else:
+        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
+        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+        
     # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
-    print (f"x_user.shape = {train_data.x_user.shape}")
-    print (f"x_item.shape = {train_data.x_item.shape}")
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
@@ -668,8 +679,7 @@ if __name__ == "__main__":
     
 
     # adding the input_dims for the projection mlp's
-    cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
-    cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+
     cfg.model.edge_projection["input_dim"] = train_data.edge_attr.size(1)
     
     model = Gru_Ultra(

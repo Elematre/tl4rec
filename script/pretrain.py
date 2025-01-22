@@ -24,7 +24,6 @@ from ultra.models import Gru_Ultra, Ultra
 separator = ">" * 30
 line = "-" * 30
 
-
 def multigraph_collator(batch, train_graphs):
     num_graphs = len(train_graphs)
     probs = torch.tensor([graph.edge_index.shape[1] for graph in train_graphs]).float()
@@ -35,8 +34,11 @@ def multigraph_collator(batch, train_graphs):
     bs = len(batch)
     edge_mask = torch.randperm(graph.target_edge_index.shape[1])[:bs]
 
+    # Batch combines edges (u, v), edge type, and the edge indices
     batch = torch.cat([graph.target_edge_index[:, edge_mask], graph.target_edge_type[edge_mask].unsqueeze(0)]).t()
-    return graph, batch
+    return graph, batch, edge_mask
+
+
 
 # here we assume that train_data and valid_data are tuples of datasets
 def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
@@ -47,24 +49,35 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     world_size = util.get_world_size()
     rank = util.get_rank()
     wandb_on = cfg.train["wandb"]
+    node_features= cfg.model["node_features"]
+    edge_features= cfg.model["edge_features"]
     parallel_models = []
     # Combine parameters from all models
     all_params = []
     param_groups = []
-    
+
+    # this loop is pretty ugly. It does add the parameter groups based on node features and wraps model in DistributedDataParallel
     for i, model in enumerate(models):
         model.to(device)
+        
+        # Add backbone convolution parameters for the first model
         if i == 0:
-            # Add backbone convolution parameters for the first model
             param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
-            param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
-            param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
+            if node_features:
+                param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
+                param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
+            if edge_features:
+                param_groups.append({"params": model.ultra.edge_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_edge_lr"]})
     
-        if cfg.model["node_features"]:
-            # Add projection MLP parameters for each model
+        if node_features:
+           # Add node-projection MLP parameters for each model
             param_groups.append({"params": model.user_projection.parameters(), "lr": cfg.optimizer["projection_user_lr"]})
             param_groups.append({"params": model.item_projection.parameters(), "lr": cfg.optimizer["projection_item_lr"]})
-    
+
+        if edge_features:
+            # Add edge-projection MLP parameters for each model
+            param_groups.append({"params": model.edge_projection.parameters(), "lr": cfg.optimizer["projection_edge_lr"]})
+        
         # Wrap model in DistributedDataParallel if needed
         if world_size > 1:
             parallel_models.append(nn.parallel.DistributedDataParallel(model, device_ids=[device]))
@@ -107,9 +120,8 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
 
     for i in range(0, cfg.train.num_epoch, step):
 
-        # redundant according to gptito
-        #for parallel_model in parallel_models:
-         #   parallel_model.train()
+        for parallel_model in parallel_models:
+            parallel_model.train()
             
         for epoch in range(i, min(cfg.train.num_epoch, i + step)):
             if util.get_rank() == 0:
@@ -120,14 +132,21 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
             sampler.set_epoch(epoch)
             for batch in islice(train_loader, batch_per_epoch):
                 # now at each step we sample a new graph and edges from it
-                train_graph, batch = batch
+                train_graph, batch, edge_indices = batch
+                target_edge_attr = train_graph.target_edge_attr[edge_indices,:]
+                
+                #print (f"batch_with_attr.shape: {batch_with_attr.shape}")
+                #print (f"target_edge.shape: {target_edge.shape}")
+                #print (f"target_edge_attr.shape: {target_edge_attr.shape}")
+                #test_functions.debug_edge_attr_alignment(train_graph, torch.cat([batch,target_edge_attr], dim = 1))
+                #raise ValueError("until here only")
                 # based on the train_graph choose the appropriate model and optimizer
                 graph_idx = graph_to_model_map[id(train_graph)]
                 parallel_model = parallel_models[graph_idx]
                 
                 batch = tasks.negative_sampling(train_graph, batch, cfg.task.num_negative,
                                                 strict=cfg.task.strict_negative)
-                pred = parallel_model(train_graph, batch)
+                pred = parallel_model(train_graph, batch, target_edge_attr)
                 target = torch.zeros_like(pred)
                 target[:, 0] = 1
                 loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
@@ -385,6 +404,19 @@ if __name__ == "__main__":
     
     train_data, valid_data, test_data = dataset._data[0], dataset._data[1], dataset._data[2]
     
+    # make datasets smaller if we dont use node_features
+    if not cfg.model.get("node_features", True):
+        print("discard node_features")
+        for graph in train_data:
+            graph.x_user = None
+            graph.x_item = None
+        for graph in valid_data:
+            graph.x_user = None
+            graph.x_item = None
+        for graph in test_data:
+            graph.x_user = None
+            graph.x_item = None
+    
     if "fast_test" in cfg.train:
         num_val_edges = cfg.train.fast_test
         if util.get_rank() == 0:
@@ -431,8 +463,10 @@ if __name__ == "__main__":
     models = []
     for td in train_data:
         model_cfg = copy.deepcopy(cfg.model)
-        model_cfg.user_projection["input_dim"] = td.x_user.size(1)
-        model_cfg.item_projection["input_dim"] = td.x_item.size(1)
+        if cfg.model.get("node_features", True):
+            model_cfg.user_projection["input_dim"] = td.x_user.size(1)
+            model_cfg.item_projection["input_dim"] = td.x_item.size(1)
+        model_cfg.edge_projection["input_dim"] = td.edge_attr.size(1)
         models.append(Gru_Ultra(model_cfg, ultra_ref, wandb_on))
         
    # I avoid this for now 

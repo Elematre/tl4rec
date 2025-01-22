@@ -7,7 +7,8 @@ dataset:
 
 model:
   class: Gru-Ultra
-  node_features: yes
+  node_features: no
+  edge_features: yes
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1
@@ -18,26 +19,37 @@ model:
    dropout_rate: 0.1
    use_layer_norm: yes
    hidden_dims: [32]
+  edge_projection: 
+   use_dropout: no
+   dropout_rate: 0.1
+   use_layer_norm: yes
+   hidden_dims: [8]
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 40
-      hidden_dims: [40, 40,40, 40]
+      input_dim: 64
+      hidden_dims: [64, 64,64, 64]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
       layer_norm: yes
+      project_conv_emb: no
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
     embedding_user:
       use_dropout: no
       dropout_rate: 0.1
       use_layer_norm: no
-      hidden_dims: [32, 32]
+      hidden_dims: [16, 16]
     embedding_item:
       use_dropout: no
       dropout_rate: 0.1
       use_layer_norm: no
-      hidden_dims: [32, 32]
+      hidden_dims: [16, 16]
+    embedding_edge:
+      use_dropout: yes
+      dropout_rate: 0.05
+      use_layer_norm: yes
+      hidden_dims: [8, 8, 8]
 
 task:
   name: MultiGraphPretraining
@@ -50,9 +62,11 @@ optimizer:
   class: AdamW
   projection_user_lr: 1.0e-4
   projection_item_lr: 1.0e-4
+  projection_edge_lr: 1.0e-4
   backbone_conv_lr: 5.0e-4
   backbone_mlp_user_lr: 5.0e-4
   backbone_mlp_item_lr: 5.0e-4
+  backbone_mlp_edge_lr: 5.0e-4
 
 train:
   gpus: [{{ gpus }}]

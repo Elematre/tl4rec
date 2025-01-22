@@ -5,11 +5,8 @@
 #SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:titan_rtx:1 
-#SBATCH --exclude=tikgpu10,tikgpu[06-09]
-#CommentSBATCH --nodelist=tikgpu01 # Specify that it should run on this particular node
+#SBATCH --gres=gpu:geforce_rtx_3090:1 
 #CommentSBATCH --account=tik-internal
-#CommentSBATCH --constraint='titan_rtx|tesla_v100|titan_xp|a100_80gb'
 
 
 
@@ -54,8 +51,8 @@ cd ${DIRECTORY}
 
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
 
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Yelp18 --epochs 5 --bpe 50000 --gpus "[0]" --ckpt null
-#python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
+#python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Yelp18 --epochs 5 --bpe 50000 --gpus "[0]" --ckpt null
+python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 5 --bpe 66909 --gpus "[0]" --ckpt null
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
