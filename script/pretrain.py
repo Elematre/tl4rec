@@ -42,7 +42,6 @@ def multigraph_collator(batch, train_graphs):
 
 # here we assume that train_data and valid_data are tuples of datasets
 def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
-
     if cfg.train.num_epoch == 0:
         return
 
@@ -261,18 +260,33 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
     dataset_nr = 0
     for model, test_graph, filters in zip(models, test_data, filtered_data):
         num_users = test_graph.num_users
-        test_triplets = torch.cat([test_graph.target_edge_index, test_graph.target_edge_type.unsqueeze(0)]).t()
-        sampler = torch_data.DistributedSampler(test_triplets, world_size, rank)
-        test_loader = torch_data.DataLoader(test_triplets, cfg.train.batch_size, sampler=sampler)
+
+        # add edge_indices to the edges so we can provide the edge_attr to the model
+        num_edges = test_graph.target_edge_index.size(1)  # Number of edges
+        edge_indices = torch.arange(num_edges,dtype=torch.int64, device=test_graph.target_edge_index.device).unsqueeze(1)  # Shape: (num_edges, 1)
+    
+        test_triplets_with_idx = torch.cat([
+            test_graph.target_edge_index.t(),  # Shape: (num_edges, 2)
+            test_graph.target_edge_type.unsqueeze(1),   # Shape: (num_edges, 1)
+            edge_indices    # Shape: (num_edges, attr_dim)
+        ], dim=1)  # Final Shape: (num_edges, 2 + 1 + attr_dim)
+    
+        sampler = torch_data.DistributedSampler(test_triplets_with_idx, world_size, rank)
+        test_loader = torch_data.DataLoader(test_triplets_with_idx, cfg.train.batch_size, sampler=sampler)
 
         model.eval()
         rankings = []
         num_negatives = []
         ndcgs = []
-        for batch in test_loader:
+        for batch_with_idx in test_loader:
+            batch = batch_with_idx[:,:3]
+            edge_indices = batch_with_idx[:, 3].long()
+            target_edge_attr = test_graph.target_edge_attr[edge_indices,:]
+            
+            
             t_batch, h_batch = tasks.all_negative(test_graph, batch)
-            t_pred = model(test_graph, t_batch)
-            h_pred = model(test_graph, h_batch)
+            t_pred = model(test_graph, t_batch, target_edge_attr)
+            h_pred = model(test_graph, h_batch, target_edge_attr)
 
             if filtered_data is None:
                 t_mask, h_mask = tasks.strict_negative_mask(test_graph, batch)
@@ -453,7 +467,7 @@ if __name__ == "__main__":
     # initialize the list of Gru-Models sharing the backbone Model
     # Shared Ultra backbone
     ultra_ref = Ultra(cfg.model, wandb_on)
-    
+    wandb.define_metric("debug/*", summary=None)
     if "checkpoint" in cfg:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         ultra_ref.load_state_dict(state["model"])
