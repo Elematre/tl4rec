@@ -186,10 +186,12 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             logger.warning("Evaluate on valid")
             
         if fine_tuning:
-            #result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
+            #result_dict = {}
+            #result_dict["ndcg@20"] = 1
+        else:
             result_dict = {}
             result_dict["ndcg@20"] = 1
-        else:
             #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
             result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 200)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
@@ -438,6 +440,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             h_pred = model(test_data, h_batch, target_edge_attr)
             #t_pred= (bs, num_nodes)
         else:
+            print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
             batch_size = batch.size(0)
             # Create tensors filled with -infinity
             t_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
@@ -447,15 +450,15 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             batch_concat = torch.cat((batch, batch), dim=0)
             
             # Perform negative sampling
-            batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, 100, strict=True)
+            batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, nr_eval_negs, strict=True)
             
             # Split the batch into t_batch and h_batch
             t_batch = batch_sampled[:batch_size, :, :]
             h_batch = batch_sampled[batch_size:, :, :]
             
             # Get predictions for the sampled negatives
-            t_pred_batch = model(test_data, t_batch, target_edge_attr)  # Shape: (batch_size, 101)
-            h_pred_batch = model(test_data, h_batch, target_edge_attr)  # Shape: (batch_size, 101)
+            t_pred_batch = model(test_data, t_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs + 1)
+            h_pred_batch = model(test_data, h_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs + 1)
             
             # Use scatter to populate t_pred and h_pred efficiently
             # Extract the tail indices from t_batch and head indices from h_batch
@@ -633,6 +636,8 @@ if __name__ == "__main__":
         print ("We are using a amazon dataset")
         nr_eval_negs = 100
         k = 10
+    if dataset_name.startswith("Last"):
+        nr_eval_negs = 1000
     
         
     run_name = util.get_run_name(cfg)

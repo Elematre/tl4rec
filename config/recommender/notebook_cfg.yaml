@@ -73,7 +73,7 @@ train:
   batch_per_epoch: {{ bpe }}
   loss: bce # Options: Bpr, bce
   target_metric: ndcg@20
-  wandb: yes
+  wandb: no
   gradient_clip: no
   init_linear_weights: yes
   num_evals: 10

@@ -4,6 +4,28 @@ from torch_geometric.data import Data
 import torch
 import random
 
+def test_pyG_graph(datas):
+    """
+    Checks that the dataset is in correct form
+    """
+    # Assuming edge_index is a tensor of shape (2, num_edges)
+    def has_duplicate_edges(edge_index):
+        edge_set = set(map(tuple, edge_index.t().tolist()))  # Convert to set of tuples
+        return len(edge_set) < edge_index.shape[1] 
+    assert (not has_duplicate_edges(datas[0].edge_index)), "duplicated edges_detected in data."
+    for data in datas:
+        assert data.edge_index.size(1) == data.edge_attr.size(0), "size mismatch between edge_index and edge_attr"
+        assert data.edge_index.size(1) == data.edge_type.size(0), "size mismatch between edge_index and edge_type"
+        assert data.target_edge_index.size(1) == data.target_edge_attr.size(0), "size mismatch between target_edge_index and target_edge_attr"
+        assert data.target_edge_index.size(1) == data.target_edge_type.size(0), "size mismatch between target_edge_index and target_edge_type"
+        assert data.num_users == data.x_user.size(0), "size mismatch between num_users and x_user"
+        assert data.num_items == data.x_item.size(0), "size mismatch between num_items and x_item"
+        validate_graph (data)
+        #assert (not has_duplicate_edges(data.edge_index)), "duplicated edges_detected in data."
+        # to do test duplicate
+    print ("Graph looks good!")
+
+        
 
 def debug_edge_attr_alignment(train_data, batch_with_attr):
     """
@@ -97,7 +119,7 @@ def find_mismatched_ids(user_map_keys, raw_user_ids, max_output=2):
 
 
 
-def validate_graph(data, num_users, num_items):
+def validate_graph(data):
     """
     Validate the structure of the graph.
     Ensures:
@@ -110,6 +132,8 @@ def validate_graph(data, num_users, num_items):
         num_users (int): Number of users.
         num_items (int): Number of items.
     """
+    num_items = data.num_items
+    num_users = data.num_users
     num_nodes = num_users + num_items
 
     # Validate num_nodes

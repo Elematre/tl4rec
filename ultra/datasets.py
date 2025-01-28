@@ -45,6 +45,124 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
 
 
 
+class LastFM(InMemoryDataset):
+    """
+    LastFM Dataset for recommender systems.
+    Includes edge features from user-item interactions.
+    """
+    name = "lastfm"
+    
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_dir(self):
+        return os.path.join(self.root, self.name, "raw")
+
+    @property
+    def processed_dir(self):
+        return os.path.join(self.root, self.name, "processed")
+
+    @property
+    def raw_file_names(self):
+        return ["lastfm_raw_with_splits.csv"]
+
+    @property
+    def processed_file_names(self):
+        return "data.pt"
+
+    def process(self):
+        # Load data
+        df = pd.read_csv(os.path.join(self.raw_dir, "lastfm_raw_with_splits.csv"))
+        df.drop(columns=["timestamp"], inplace=True)
+
+        # Get user and item counts
+        num_users = df['user'].max() + 1
+        df['item'] += num_users  # Adjust item IDs
+        num_items = df['item'].max() - num_users + 1
+        
+        # Split into train/test
+        train_df = df[df['split'] == 'train'].drop(columns=['split'])
+        test_df = df[df['split'] == 'test'].drop(columns=['split'])
+        
+        # Convert to tensor
+        train_edges = torch.tensor(train_df[['user', 'item']].values.T, dtype=torch.long)
+        test_edges = torch.tensor(test_df[['user', 'item']].values.T, dtype=torch.long)
+        
+        # Process ratings
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["rating"]
+        meta_info["drop_cols"] = ["user", "item"]
+        train_edges_features = preprocess_data.process_df((train_df, meta_info))
+        test_edges_features = preprocess_data.process_df((test_df, meta_info))
+        
+        # Stratified split for validation
+        train_indices, valid_indices = preprocess_data.stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
+        train_target_edges = train_edges[:, train_indices]
+        valid_target_edges = train_edges[:, valid_indices]
+        train_target_edges_features = train_edges_features[train_indices, :]
+        valid_target_edges_features = train_edges_features[valid_indices, :]
+        
+        # Build undirected edge_index
+        train_edges_combined = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
+        train_edge_types = torch.cat([
+            torch.zeros(train_target_edges.size(1), dtype=torch.int64),
+            torch.ones(train_target_edges.size(1), dtype=torch.int64)
+        ], dim=0)
+        train_edges_combined_features = torch.cat([train_target_edges_features, train_target_edges_features], dim=0)
+        
+        valid_edge_types = torch.zeros(valid_target_edges.size(1), dtype=torch.int64)
+        test_edge_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
+        train_target_edge_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
+        
+        # Number of nodes and relations
+        num_nodes = num_users + num_items
+        num_relations = 2
+        
+        # Construct Data objects
+        train_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            num_nodes=num_nodes,
+            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types, target_edge_attr=train_target_edges_features,
+            num_relations=num_relations
+        )
+        
+        valid_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            num_nodes=num_nodes,
+            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types, target_edge_attr=valid_target_edges_features,
+            num_relations=num_relations
+        )
+        
+        test_data = Data(
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            num_nodes=num_nodes,
+            target_edge_index=test_edges, target_edge_type=test_edge_types, target_edge_attr=test_edges_features,
+            num_relations=num_relations
+        )
+        
+        # Create generic user/item features
+        user_features = torch.ones((num_users, 1), dtype=torch.float32)
+        item_features = torch.ones((num_items, 1), dtype=torch.float32)
+        
+        for data in [train_data, valid_data, test_data]:
+            data.num_users = num_users
+            data.num_items = num_items
+            data.x_user = user_features
+            data.x_item = item_features
+        
+        # Pre-transform if provided
+        if self.pre_transform is not None:
+            train_data = self.pre_transform(train_data)
+            valid_data = self.pre_transform(valid_data)
+            test_data = self.pre_transform(test_data)
+            
+        test_functions.test_pyG_graph([train_data,valid_data,test_data])
+        # Save processed data
+        torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+
+
 class Gowalla(InMemoryDataset):
     """
     Gowalla Dataset for recommender systems.
