@@ -81,6 +81,6 @@ train:
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 8
   fine_tuning:
-    num_epoch_proj: 1
+    num_epoch_proj: 0
 
 checkpoint: {{ ckpt }}

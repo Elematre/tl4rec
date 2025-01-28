@@ -22,6 +22,28 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def get_run_name(cfg):
+    num_epoch = cfg.train.num_epoch
+    edge_proj_dim = cfg.model.edge_projection["hidden_dims"][0]
+    conv_dim = cfg.model.backbone_model.simple_model["input_dim"]
+    model_type = f"{edge_proj_dim}/{conv_dim}"
+    
+    if num_epoch == 0:
+        run_type = "0-Shot"
+    elif num_epoch <= 4:
+        num_epoch_proj_ft = cfg.train.fine_tuning["num_epoch_proj"]
+        num_epoch_whole_ft = num_epoch - num_epoch_proj_ft
+        run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+    else:
+        run_type = f"End-to-End"
+        
+    if cfg.model.backbone_model.simple_model["project_conv_emb"]:
+        edge_emb_usage = "edge_proj"
+    else:
+        edge_emb_usage = "edge_init"
+        
+    return f"{run_type}-{edge_emb_usage}-{model_type}"
+    
 def log_node_features(user_projection, item_projection, name):             
             user_mean, user_var = user_projection.mean().item(), user_projection.var().item()
             item_mean, item_var = item_projection.mean().item(), item_projection.var().item()

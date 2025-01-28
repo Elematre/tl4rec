@@ -633,20 +633,13 @@ if __name__ == "__main__":
         print ("We are using a amazon dataset")
         nr_eval_negs = 100
         k = 10
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_type = "End-to-End"
-    num_epoch = cfg.train.num_epoch
-    if num_epoch == 0:
-        run_type = "0-Shot"
-    elif num_epoch <= 4:
-        run_type = "Fine-Tuned"
-        fine_tuning = True
+    
         
-    run_name = f"{dataset_name}-{run_type}-{current_time}"
+    run_name = util.get_run_name(cfg)
     wandb_on = cfg.train["wandb"]
     if wandb_on:
         wandb.init(
-            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+            entity = "pitri-eth-z-rich", project="tl4rec", name= f"{dataset_name}-{run_name}", config=cfg)
         
     task_name = cfg.task["name"]
     dataset = util.build_dataset(cfg)
@@ -662,7 +655,7 @@ if __name__ == "__main__":
         valid_data.x_item = None
         test_data.x_user = None
         test_data.x_item = None
-        print ("discarded some things")
+        print ("discarded user_features")
     else:
         cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
         cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
@@ -679,7 +672,6 @@ if __name__ == "__main__":
     
 
     # adding the input_dims for the projection mlp's
-
     cfg.model.edge_projection["input_dim"] = train_data.edge_attr.size(1)
     
     model = Gru_Ultra(
@@ -698,7 +690,7 @@ if __name__ == "__main__":
         state = torch.load(cfg.checkpoint, map_location="cpu")
         model.ultra.load_state_dict(state["model"])
     
-
+    fine_tuning = cfg.train.num_epoch < 4
     #model = pyg.compile(model, dynamic=True)
     model = model.to(device)
     if wandb_on:
