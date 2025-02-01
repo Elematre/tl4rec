@@ -214,6 +214,11 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
             logger.warning(separator)
             logger.warning("Evaluate on valid")
         result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
+        
+        # Decide wether we prune
+        trial.report(result, step=epoch)
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
         if result > best_result:
             best_result = result
             best_epoch = epoch
@@ -437,6 +442,7 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
 
 
 
+
 if __name__ == "__main__":
     args, vars = util.parse_args()
     cfg = util.load_config(args.config, context=vars)
@@ -493,46 +499,7 @@ if __name__ == "__main__":
     valid_data = [vd.to(device) for vd in valid_data]
     test_data = [tst.to(device) for tst in test_data]
     
-    #for td in train_data:
-        #print (td)
-    
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"pretrain-{current_time}"
-    wandb_on = cfg.train["wandb"]
-    if wandb_on:
-        wandb.init(
-            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
-
-    # initialize the list of Gru-Models sharing the backbone Model
-    # Shared Ultra backbone
-    ultra_ref = Ultra(cfg.model, wandb_on)
-    
-    if wandb_on:
-        wandb.define_metric("debug/*", summary=None)
-    if "checkpoint" in cfg:
-        state = torch.load(cfg.checkpoint, map_location="cpu")
-        ultra_ref.load_state_dict(state["model"])
-
-    
-    # Create a Gru_Ultra model for each dataset
-    models = []
-    for td in train_data:
-        model_cfg = copy.deepcopy(cfg.model)
-        if cfg.model.get("node_features", True):
-            model_cfg.user_projection["input_dim"] = td.x_user.size(1)
-            model_cfg.item_projection["input_dim"] = td.x_item.size(1)
-        model_cfg.edge_projection["input_dim"] = td.edge_attr.size(1)
-        models.append(Gru_Ultra(model_cfg, ultra_ref, wandb_on))
-        
-   # I avoid this for now 
-    #model = model.to(device)
-    #if wandb_on:
-        #wandb.watch(model, log= None)
-    
-    
-    assert task_name == "MultiGraphPretraining", "Only the MultiGraphPretraining task is allowed for this script"
-
-    # for transductive setting, use the whole graph for filtered ranking
+     # for transductive setting, use the whole graph for filtered ranking
     filtered_data = [
         Data(
             edge_index=torch.cat([trg.target_edge_index, valg.target_edge_index, testg.target_edge_index], dim=1), 
@@ -544,13 +511,127 @@ if __name__ == "__main__":
         for trg, valg, testg in zip(train_data, valid_data, test_data)
     ]
 
-    train_and_validate(cfg, models, train_data, valid_data if "fast_test" not in cfg.train else short_valid, filtered_data=filtered_data, batch_per_epoch=cfg.train.batch_per_epoch)
-    if util.get_rank() == 0:
-        logger.warning(separator)
-        logger.warning("Evaluate on valid")
-    test(cfg, models, valid_data, filtered_data=filtered_data, context = 1)
-  
-    if util.get_rank() == 0:
-        logger.warning(separator)
-        logger.warning("Evaluate on test")
-    test(cfg, models, test_data, filtered_data=filtered_data, context = 2)
+
+    
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    run_name = f"pretrain-{current_time}"
+    wandb_on = cfg.train["wandb"]
+    if wandb_on:
+        wandb.init(
+            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
+
+    def objective(trial):
+        # --- Sample Learning Rate Hyperparameters ---
+        proj_edge_lr = trial.suggest_loguniform("projection_edge_lr", 1e-5, 1e-3)
+        bb_conv_lr   = trial.suggest_loguniform("backbone_conv_lr", 1e-5, 1e-3)
+        bb_mlp_edge_lr = trial.suggest_loguniform("backbone_mlp_edge_lr", 1e-5, 1e-3)
+    
+        # --- Sample Edge Projection Hyperparameters ---
+        edge_proj_use_dropout    = trial.suggest_categorical("edge_projection_use_dropout", [False, True])
+        edge_proj_dropout_rate   = trial.suggest_uniform("edge_projection_dropout_rate", 0.0, 0.5)
+        edge_proj_use_layer_norm = trial.suggest_categorical("edge_projection_use_layer_norm", [False, True])
+        
+        num_edge_proj_layers = trial.suggest_int("num_edge_proj_layers", 1, 5)
+        edge_emb_dim = trial.suggest_int("edge_emb_dim", 2, 8)
+        edge_projection_hidden_dims  = []
+        for i in range(num_edge_proj_layers):
+            edge_projection_hidden_dims.append(edge_emb_dim)
+            
+    
+        # --- Sample Embedding Edge Hyperparameters ---
+        embedding_edge_use_dropout    = trial.suggest_categorical("embedding_edge_use_dropout", [False, True])
+        embedding_edge_dropout_rate   = trial.suggest_uniform("embedding_edge_dropout_rate", 0.0, 0.5)
+        embedding_edge_use_layer_norm = trial.suggest_categorical("embedding_edge_use_layer_norm", [False, True])
+    
+        num_edge_emb_layers = trial.suggest_int("num_edge_emb_layers", 1, 7)
+        embedding_edge_hidden_dims = []
+        for i in range(num_edge_emb_layers):
+            embedding_edge_hidden_dims.append(edge_emb_dim)
+    
+        # --- Sample Simple Model Hyperparameters ---
+        simple_model_dim = trial.suggest_int("simple_model_dim", 20, 100)
+        simple_model_hidden_dims = []
+        simple_model_num_hidden = trial.suggest_int("simple_model_num_hidden", 1, 7)
+        for i in range(simple_model_num_hidden):
+            simple_model_hidden_dims.append(simple_model_dim)
+    
+        # --- Sample Task Hyperparameters ---
+        # Ensure bs * num_negative <= 128. Assuming cfg.train["batch_size"] is already set.
+        max_num_negative = 128 // cfg.train["batch_size"]
+        num_negative = trial.suggest_int("num_negative", 1, max_num_negative)
+        adversarial_temperature = trial.suggest_categorical("adversarial_temperature", [0.0, 0.5, 1.0])
+    
+        # --- Update the configuration ---
+        cfg_trial = copy.deepcopy(cfg)
+        
+        # Optimizer parameters:
+        cfg_trial.optimizer["projection_edge_lr"] = proj_edge_lr
+        cfg_trial.optimizer["backbone_conv_lr"] = bb_conv_lr
+        cfg_trial.optimizer["backbone_mlp_edge_lr"] = bb_mlp_edge_lr
+    
+        # Update edge_projection parameters:
+        cfg_trial.model["edge_projection"]["use_dropout"]    = edge_proj_use_dropout
+        cfg_trial.model["edge_projection"]["dropout_rate"]   = edge_proj_dropout_rate
+        cfg_trial.model["edge_projection"]["use_layer_norm"] = edge_proj_use_layer_norm
+        cfg_trial.model["edge_projection"]["hidden_dims"] = edge_projection_hidden_dims
+    
+        # Update embedding_edge parameters (assuming they reside under backbone_model):
+        cfg_trial.model["backbone_model"]["embedding_edge"]["use_dropout"]    = embedding_edge_use_dropout
+        cfg_trial.model["backbone_model"]["embedding_edge"]["dropout_rate"]   = embedding_edge_dropout_rate
+        cfg_trial.model["backbone_model"]["embedding_edge"]["use_layer_norm"] = embedding_edge_use_layer_norm
+        cfg_trial.model["backbone_model"]["embedding_edge"]["hidden_dims"]    = embedding_edge_hidden_dims
+    
+        # Update simple_model parameters (assuming they reside under backbone_model):
+        cfg_trial.model["backbone_model"]["simple_model"]["input_dim"] = simple_model_dim
+        cfg_trial.model["backbone_model"]["simple_model"]["hidden_dims"] = simple_model_hidden_dims
+    
+        # Update task parameters:
+        cfg_trial.task["num_negative"] = num_negative
+        cfg_trial.task["adversarial_temperature"] = adversarial_temperature
+    
+        # Use fewer epochs for hyperparameter search
+        cfg_trial.train["num_epoch"] = 2
+    
+        # --- Build the models ---
+        # Here we assume that train_data, valid_data, test_data, short_valid, and filtered_data 
+        # have already been created globally (and moved to device).
+        ultra_ref = Ultra(cfg_trial.model, wandb_on)
+        models = []
+        def weights_init(m):
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+    
+    
+        for td in train_data:
+            # Build a copy of the model configuration for each dataset.
+            model_cfg = copy.deepcopy(cfg_trial.model)
+            # For this version, we assume node features are not used.
+            model_cfg["edge_projection"]["input_dim"] = td.edge_attr.size(1)
+            model = Gru_Ultra(model_cfg, ultra_ref, wandb_on)
+            model.apply(weights_init)
+            models.append(model)
+    
+        # --- Train and Validate ---
+        # Use the pre-built short_valid and filtered_data for consistency.
+        val_metric = train_and_validate(
+            cfg_trial, models, train_data,
+            valid_data if "fast_test" not in cfg_trial.train else short_valid,
+            filtered_data=filtered_data,
+            batch_per_epoch=cfg_trial.train["batch_per_epoch"]
+        )
+        
+        return val_metric
+
+    study = optuna.create_study(
+        direction="maximize", 
+        pruner=optuna.pruners.MedianPruner(n_warmup_steps=0)  
+    )
+    
+    study.optimize(objective, n_trials=50)  # Adjust n_trials based on your available resources
+    best_params = study.best_trial.params
+    util.save_cfg_of_best_params(best_params, cfg)
+
+    
+

@@ -190,8 +190,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             #result_dict = {}
             #result_dict["ndcg@20"] = 1
         else:
-            result_dict = {}
-            result_dict["ndcg@20"] = 1
+            #result_dict = {}
+            #result_dict["ndcg@20"] = 1
             #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
             result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 200)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
@@ -286,11 +286,6 @@ def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_
         #num_t_negative = torch.tensor([len(negatives) for negatives in t_batch[:, :, 1]], device=batch.device)
         #num_h_negative = torch.tensor([len(negatives) for negatives in h_batch[:, :, 0]], device=batch.device)
 
-        
-
-            
-
-       
         ndcgs += [t_ndcg, h_ndcg]
         tail_ndcgs +=  [t_ndcg]
 
@@ -620,8 +615,8 @@ if __name__ == "__main__":
     cfg = util.load_config(args.config, context=vars)
     working_dir = util.create_working_directory(cfg)
 
-    #torch.manual_seed(args.seed + util.get_rank())
-    torch.manual_seed(42)
+    torch.manual_seed(args.seed + util.get_rank())
+    #torch.manual_seed(42)
     logger = util.get_root_logger()
     if util.get_rank() == 0:
         logger.warning("Random seed: %d" % args.seed)

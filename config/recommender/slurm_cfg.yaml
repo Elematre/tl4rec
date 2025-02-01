@@ -34,7 +34,7 @@ model:
       aggregate_func: sum
       short_cut: yes
       layer_norm: yes
-      project_conv_emb: no
+      project_conv_emb: yes
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
     embedding_user:
       use_dropout: no

@@ -22,6 +22,58 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def save_cfg_of_best_params (best_params, cfg):
+    
+    best_config = cfg.copy()
+
+    best_config.optimizer["projection_edge_lr"] = best_params["projection_edge_lr"]
+    best_config.optimizer["backbone_conv_lr"] = best_params["backbone_conv_lr"]
+    best_config.optimizer["backbone_mlp_edge_lr"] = best_params["backbone_mlp_edge_lr"]
+
+    # Update edge_projection parameters:
+    best_config.model["edge_projection"]["use_dropout"] = best_params["edge_projection_use_dropout"]
+    best_config.model["edge_projection"]["dropout_rate"]   = best_params["edge_projection_dropout_rate"]
+    best_config.model["edge_projection"]["use_layer_norm"] = best_params["edge_projection_use_layer_norm"]
+    edge_emb_dim = best_params["edge_emb_dim"]
+    num_edge_proj_layers = best_params["num_edge_proj_layers"]
+    best_config.model["edge_projection"]["hidden_dims"] = [edge_emb_dim] * num_edge_proj_layers
+
+
+
+
+    # Update embedding_edge parameters (assuming they reside under backbone_model):
+    best_config.model["backbone_model"]["embedding_edge"]["use_dropout"]    = best_params["embedding_edge_use_dropout"]
+    best_config.model["backbone_model"]["embedding_edge"]["dropout_rate"]   = best_params["embedding_edge_dropout_rate"]
+    best_config.model["backbone_model"]["embedding_edge"]["use_layer_norm"] = best_params["embedding_edge_use_layer_norm"]
+    num_edge_emb_layers = best_params["num_edge_emb_layers"]
+    best_config.model["backbone_model"]["embedding_edge"]["hidden_dims"]    = [edge_emb_dim] * num_edge_emb_layers
+
+
+    # Update simple_model parameters (assuming they reside under backbone_model):
+    simple_model_dim =  best_params["simple_model_dim"]
+    best_config.model["backbone_model"]["simple_model"]["input_dim"] = simple_model_dim 
+    simple_model_num_hidden = best_params["simple_model_num_hidden"]
+    best_config.model["backbone_model"]["simple_model"]["hidden_dims"] = [simple_model_dim] * simple_model_num_hidden
+
+    # Update task parameters:
+    best_config.task["num_negative"] = best_params["num_negative"]
+    best_config.task["adversarial_temperature"] = best_params["adversarial_temperature"]
+
+    # Define the directory and make sure it exists
+    output_dir = "/itet-stor/trachsele/net_scratch/tl4rec/config/recommender"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Define the full file path
+    file_path = os.path.join(output_dir, "best_config.yaml")
+    
+    # Save the configuration to the YAML file
+    with open(file_path, "w") as file:
+        yaml.dump(best_config, file, default_flow_style=False)
+    
+
+    
+
+
 def get_run_name(cfg):
     num_epoch = cfg.train.num_epoch
     edge_proj_dim = cfg.model.edge_projection["hidden_dims"][0]
