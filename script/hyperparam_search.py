@@ -44,7 +44,7 @@ def multigraph_collator(batch, train_graphs):
 
 
 # here we assume that train_data and valid_data are tuples of datasets
-def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
+def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
     if cfg.train.num_epoch == 0:
         return
 
@@ -162,13 +162,6 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
                 loss = loss.mean()
 
                 loss.backward()
-
-                # Log gradient norms
-                if wandb_on:
-                    for name, param in parallel_model.named_parameters():
-                        if param.grad is not None:
-                            grad_norm = param.grad.norm().item()
-                            wandb.log({f"gradients/{name}": grad_norm})
                             
                 optimizer.step()
                 optimizer.zero_grad()
@@ -178,16 +171,6 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
                 if util.get_rank() == 0 and batch_id % cfg.train.log_interval == 0:
                     logger.warning(separator)
                     logger.warning("binary cross entropy: %g" % loss)
-                    if wandb_on:
-                         # Positive and negative scores
-                        pos_scores = pred[:, 0].detach()
-                        neg_scores = pred[:, 1:].detach()
-                        avg_pos_score = pos_scores.mean().item()
-                        avg_neg_score = neg_scores.mean().item()
-                        wandb.log({f"debug/loss_per_model/{graph_idx}": loss.item(),
-                                    "debug/loss_universal": loss.item(),
-                                    f"debug/avg_pos_score/{graph_idx}": avg_pos_score,
-                                    f"debug/avg_neg_score/{graph_idx}": avg_neg_score})
 
 
                 losses.append(loss.item())
@@ -214,7 +197,7 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
             logger.warning(separator)
             logger.warning("Evaluate on valid")
         result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
-        
+        #result = 0
         # Decide wether we prune
         trial.report(result, step=epoch)
         if trial.should_prune():
@@ -222,6 +205,13 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
         if result > best_result:
             best_result = result
             best_epoch = epoch
+            
+        if wandb_on and util.get_rank() == 0:
+            wandb.log({
+                "epoch": epoch,
+                "val_metric": val_metric,
+                "trial": trial.number,
+            })
 
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
@@ -230,24 +220,8 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     for model in models:  
         model.ultra.load_state_dict(state["model"])
     util.synchronize()
+    return best_result
     
-    # save the final model state
-    if rank == 0:
-        # Extract the last 6 letters of each dataset name
-        dataset_names = cfg.dataset['graphs']  # Example: ['Amazon_Beauty', 'Amazon_Games']
-        dataset_prefix = ''.join([name[-6:] for name in dataset_names])  # 'Beauty_Games'
-    
-        # Get the current timestamp in a readable format
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    
-        # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_name = f"{dataset_prefix}_{current_time}.pth"
-        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
-    
-        logger.warning(f"Save final_ckpt to {checkpoint_path}")
-        torch.save(state, checkpoint_path)
 
 
     
@@ -259,7 +233,6 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
     
     world_size = util.get_world_size()
     rank = util.get_rank()
-    wandb_on = cfg.train["wandb"]
     
     # test_data is a tuple of validation/test datasets
     # process sequentially
@@ -424,15 +397,7 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
         #all_metrics.append(mrr)
         if rank == 0:
             logger.warning(separator)
-            
-        if rank == 0 and wandb_on:
-            for metric, score in metrics.items():
-                if context == 2:
-                    wandb.summary[f"test/performance/{dataset_nr}/{metric}"] = score
-                elif context == 1:
-                    wandb.summary[f"validation/performance/{dataset_nr}/{metric}"] = score
-                else:
-                    wandb.log({f"train_validation/performance/{dataset_nr}/{metric}": score})
+ 
         dataset_nr += 1
             
     # to me it needs this
@@ -514,7 +479,7 @@ if __name__ == "__main__":
 
     
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"pretrain-{current_time}"
+    run_name = f"hyperparam_search-{current_time}"
     wandb_on = cfg.train["wandb"]
     if wandb_on:
         wandb.init(
@@ -522,13 +487,13 @@ if __name__ == "__main__":
 
     def objective(trial):
         # --- Sample Learning Rate Hyperparameters ---
-        proj_edge_lr = trial.suggest_loguniform("projection_edge_lr", 1e-5, 1e-3)
-        bb_conv_lr   = trial.suggest_loguniform("backbone_conv_lr", 1e-5, 1e-3)
-        bb_mlp_edge_lr = trial.suggest_loguniform("backbone_mlp_edge_lr", 1e-5, 1e-3)
+        proj_edge_lr = trial.suggest_float("projection_edge_lr", 1e-5, 1e-3, log = True)
+        bb_conv_lr   = trial.suggest_float("backbone_conv_lr", 1e-5, 1e-3, log = True)
+        bb_mlp_edge_lr = trial.suggest_float("backbone_mlp_edge_lr", 1e-5, 1e-3, log = True)
     
         # --- Sample Edge Projection Hyperparameters ---
         edge_proj_use_dropout    = trial.suggest_categorical("edge_projection_use_dropout", [False, True])
-        edge_proj_dropout_rate   = trial.suggest_uniform("edge_projection_dropout_rate", 0.0, 0.5)
+        edge_proj_dropout_rate   = trial.suggest_float("edge_projection_dropout_rate", 0.0, 0.5)
         edge_proj_use_layer_norm = trial.suggest_categorical("edge_projection_use_layer_norm", [False, True])
         
         num_edge_proj_layers = trial.suggest_int("num_edge_proj_layers", 1, 5)
@@ -540,7 +505,7 @@ if __name__ == "__main__":
     
         # --- Sample Embedding Edge Hyperparameters ---
         embedding_edge_use_dropout    = trial.suggest_categorical("embedding_edge_use_dropout", [False, True])
-        embedding_edge_dropout_rate   = trial.suggest_uniform("embedding_edge_dropout_rate", 0.0, 0.5)
+        embedding_edge_dropout_rate   = trial.suggest_float("embedding_edge_dropout_rate", 0.0, 0.5)
         embedding_edge_use_layer_norm = trial.suggest_categorical("embedding_edge_use_layer_norm", [False, True])
     
         num_edge_emb_layers = trial.suggest_int("num_edge_emb_layers", 1, 7)
@@ -549,7 +514,13 @@ if __name__ == "__main__":
             embedding_edge_hidden_dims.append(edge_emb_dim)
     
         # --- Sample Simple Model Hyperparameters ---
-        simple_model_dim = trial.suggest_int("simple_model_dim", 20, 100)
+        # we need to ensure simple_model_dim % edge_attr_dim == 0
+        # Compute the allowed multiplier range for simple_model_dim to be within [20, 100]
+        multiplier_lower = math.ceil(20 / edge_emb_dim)  # smallest multiplier such that edge_emb_dim * multiplier >= 20
+        multiplier_upper = math.floor(100 / edge_emb_dim)  # largest multiplier such that edge_emb_dim * multiplier <= 100
+        simple_model_multiplier = trial.suggest_int("simple_model_multiplier", multiplier_lower, multiplier_upper)
+        simple_model_dim = simple_model_multiplier * edge_emb_dim
+
         simple_model_hidden_dims = []
         simple_model_num_hidden = trial.suggest_int("simple_model_num_hidden", 1, 7)
         for i in range(simple_model_num_hidden):
@@ -562,7 +533,7 @@ if __name__ == "__main__":
         adversarial_temperature = trial.suggest_categorical("adversarial_temperature", [0.0, 0.5, 1.0])
     
         # --- Update the configuration ---
-        cfg_trial = copy.deepcopy(cfg)
+        cfg_trial = copy.copy(cfg)
         
         # Optimizer parameters:
         cfg_trial.optimizer["projection_edge_lr"] = proj_edge_lr
@@ -589,13 +560,11 @@ if __name__ == "__main__":
         cfg_trial.task["num_negative"] = num_negative
         cfg_trial.task["adversarial_temperature"] = adversarial_temperature
     
-        # Use fewer epochs for hyperparameter search
-        cfg_trial.train["num_epoch"] = 2
     
         # --- Build the models ---
         # Here we assume that train_data, valid_data, test_data, short_valid, and filtered_data 
         # have already been created globally (and moved to device).
-        ultra_ref = Ultra(cfg_trial.model, wandb_on)
+        ultra_ref = Ultra(cfg_trial.model, False)
         models = []
         def weights_init(m):
             if isinstance(m, nn.Linear):
@@ -616,7 +585,7 @@ if __name__ == "__main__":
         # --- Train and Validate ---
         # Use the pre-built short_valid and filtered_data for consistency.
         val_metric = train_and_validate(
-            cfg_trial, models, train_data,
+            cfg_trial,trial, models, train_data,
             valid_data if "fast_test" not in cfg_trial.train else short_valid,
             filtered_data=filtered_data,
             batch_per_epoch=cfg_trial.train["batch_per_epoch"]
@@ -626,12 +595,13 @@ if __name__ == "__main__":
 
     study = optuna.create_study(
         direction="maximize", 
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=0)  
+        pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)  
     )
     
-    study.optimize(objective, n_trials=50)  # Adjust n_trials based on your available resources
+    study.optimize(objective, n_trials=20)  # Adjust n_trials based on your available resources
     best_params = study.best_trial.params
     util.save_cfg_of_best_params(best_params, cfg)
+    logger.warning("hyperparam search done and cfg saved")
 
     
 

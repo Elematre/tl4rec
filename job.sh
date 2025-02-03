@@ -5,9 +5,8 @@
 #SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:geforce_rtx_3090:1 
+#SBATCH --gres=gpu:titan_rtx:1 
 #CommentSBATCH --account=tik-internal
-
 
 
 ETH_USERNAME=trachsele
@@ -50,10 +49,12 @@ conda info --envs
 cd ${DIRECTORY}
 
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 5 --bpe 5590 --gpus "[0]" --ckpt null
+#python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 5 --bpe 5590 --gpus "[0]" --ckpt null
+#python script/hyperparam_search.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 1 --bpe 20000 --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/Beauty_Games_4_40_no_proj.pth
 #python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
-#python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 5 --bpe 66909 --gpus "[0]" --ckpt null
+python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 1 --bpe 66909 --gpus "[0]" --ckpt null --seed 17
+
 # Send more noteworthy information to the output log
 echo "Finished at: $(date)"
 

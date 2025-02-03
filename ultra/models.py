@@ -122,7 +122,7 @@ class SimpleNBFNet(BaseNBFNet):
         self.activation = None
         self.concat_hidden = True
         self.project_conv_emb = kwargs.get('project_conv_emb', False)
-        print(f"self.project_conv_emb {self.project_conv_emb}")
+       # print(f"self.project_conv_emb {self.project_conv_emb}")
         
         for i in range(len(self.dims) - 1):
             self.layers.append(
