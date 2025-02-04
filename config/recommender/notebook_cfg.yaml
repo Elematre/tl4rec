@@ -5,7 +5,9 @@ dataset:
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
-
+# projection_dim = embedding_dim
+# simple_model_dim % edge_dim == 0!
+ 
 model:
   class: Gru-Ultra
   node_features: no
@@ -21,7 +23,7 @@ model:
    use_layer_norm: yes
    hidden_dims: [32]
   edge_projection: 
-   use_dropout: no
+   use_dropout: yes
    dropout_rate: 0.1
    use_layer_norm: yes
    hidden_dims: [4]
@@ -48,10 +50,10 @@ model:
       hidden_dims: [16, 16]
     embedding_edge:
       use_dropout: yes
-      dropout_rate: 0.05
+      dropout_rate: 0.2 
       use_layer_norm: yes
       hidden_dims: [4, 4, 4]
-    
+    #0.05
 
 task:
   name: TransductiveInference

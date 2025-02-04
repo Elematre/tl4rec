@@ -196,8 +196,8 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
-        result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
-        #result = 0
+        #result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
+        result = 0
         # Decide wether we prune
         trial.report(result, step=epoch)
         if trial.should_prune():
@@ -209,7 +209,7 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
         if wandb_on and util.get_rank() == 0:
             wandb.log({
                 "epoch": epoch,
-                "val_metric": val_metric,
+                "val_metric": result,
                 "trial": trial.number,
             })
 
@@ -528,12 +528,12 @@ if __name__ == "__main__":
     
         # --- Sample Task Hyperparameters ---
         # Ensure bs * num_negative <= 128. Assuming cfg.train["batch_size"] is already set.
-        max_num_negative = 128 // cfg.train["batch_size"]
+        max_num_negative = 1024 // cfg.train["batch_size"]
         num_negative = trial.suggest_int("num_negative", 1, max_num_negative)
         adversarial_temperature = trial.suggest_categorical("adversarial_temperature", [0.0, 0.5, 1.0])
     
         # --- Update the configuration ---
-        cfg_trial = copy.copy(cfg)
+        cfg_trial = copy.deepcopy(cfg)
         
         # Optimizer parameters:
         cfg_trial.optimizer["projection_edge_lr"] = proj_edge_lr

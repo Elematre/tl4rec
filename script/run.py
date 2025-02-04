@@ -193,7 +193,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             #result_dict = {}
             #result_dict["ndcg@20"] = 1
             #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
-            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 200)
+            result_dict = fast_test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True)
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
             for metric, score in result_dict.items():
@@ -217,7 +217,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     
 # optimized method only evaluates against 100 samples. 
 # Does not give the exact same result but reasonable close as test with nr_neg_eval = 100 but I reckon this is due to non-determinsim of some methods.
-def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
+def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None):
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
@@ -252,7 +252,7 @@ def fast_test(cfg, model, test_data, device, logger, filtered_data=None, return_
         #raise ValueError("until here only")
         pos_h_index, pos_t_index, pos_r_index = batch.t()
         batch_size = batch.size(0)           
-        
+        print(f"nr_eval_negs: {nr_eval_negs}")
         # Concatenate batch for negative sampling
         batch_concat = torch.cat((batch, batch), dim=0)
         # Perform negative sampling
@@ -435,7 +435,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             h_pred = model(test_data, h_batch, target_edge_attr)
             #t_pred= (bs, num_nodes)
         else:
-            print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
+            #print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
             batch_size = batch.size(0)
             # Create tensors filled with -infinity
             t_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
@@ -632,6 +632,7 @@ if __name__ == "__main__":
         nr_eval_negs = 100
         k = 10
     if dataset_name.startswith("Last"):
+        print ("We are using a last-fm dataset")
         nr_eval_negs = 1000
     
         
