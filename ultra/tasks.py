@@ -5,6 +5,120 @@ import torch
 import random
 
 
+def build_candidate_set(test_data, filtered_data, batch, cand_size, num_users):
+    """
+    Build candidate sets for tail and head prediction for evaluation.
+    
+    For each positive triplet in the batch (of shape (bs, 3), each row is [h, t, r]):
+      - Compute the test positives from test_data (using context=3) and use filtered_data (which
+        contains all edges: train, valid, test) to determine the valid negatives.
+      - For tail prediction, for the given (h, r) pair:
+            • pos_t: all candidate tails that are positives in the test set.
+            • valid_neg_t: all items that do NOT appear for (h, r) in filtered_data.
+            • Then the candidate set is: all pos_t ∪ a random sample from (valid_neg_t minus pos_t)
+              so that the total size equals cand_size.
+      - Similarly for head prediction.
+      - If the available negatives are fewer than required, we “pad” by repeating (tiling) the negatives.
+      - Finally, for tail prediction, we form candidate triplets (h, candidate, r) and for head prediction,
+        (candidate, t, r).
+    
+    Returns:
+       t_batch: Tensor of shape (bs, cand_size, 3) for tail prediction.
+       h_batch: Tensor of shape (bs, cand_size, 3) for head prediction.
+       
+    Parameters:
+      test_data: Data object containing test edges and test-related attributes.
+      filtered_data: Data object whose edge_index (and edge_type) includes all edges (train/valid/test);
+                     used here to filter out items that should not be recommended.
+      batch: Tensor of shape (bs, 3) where each row is a positive triplet [h, t, r].
+      cand_size: The desired candidate set size (e.g. 1000).
+      num_users: Number of users (used in mask adjustment).
+    """
+    bs = batch.size(0)
+    
+    # --- Step 1. Compute Masks ---
+    # Use test_data (context=3) to get the test positives.
+    t_mask_test, h_mask_test = strict_negative_mask(test_data, batch, context=3)
+    t_test_pos, h_test_pos = invert_mask(t_mask_test, h_mask_test, num_users)
+    
+    # Use filtered_data (context=1) to compute negatives from the full graph.
+    t_valid_neg, h_valid_neg = strict_negative_mask(filtered_data, batch, context=1)
+    # t_valid_neg is True for nodes that are *not* connected in filtered_data.
+    
+    t_candidate_list = []
+    h_candidate_list = []
+    
+    # --- Step 2. Build candidate sets per batch sample ---
+    for i in range(bs):
+        # --- Tail Prediction: For (h, r), predict the tail candidate.
+        # Get the test positives: these are items that appear as tails in the test set for (h, r)
+        pos_t = torch.where(t_test_pos[i])[0]  # indices where test positive mask is True
+        # Valid negatives: items that are not connected in the full graph
+        # (Exclude any that are test positives so we do not duplicate them.)
+        valid_neg_t = torch.where(t_valid_neg[i])[0]
+    
+        if pos_t.numel() >= cand_size:
+            candidate_t = pos_t[:cand_size]
+        else:
+            required = cand_size - pos_t.numel()
+            if valid_neg_t.numel() > 0:
+                if valid_neg_t.numel() >= required:
+                    perm = torch.randperm(valid_neg_t.numel(), device=batch.device)
+                    sampled_neg_t = valid_neg_t[perm[:required]]
+                else:
+                    # Not enough negatives: tile them until we have at least 'required' items,
+                    # then randomly shuffle and take the first required.
+                    reps = (required + valid_neg_t.numel() - 1) // valid_neg_t.numel()  # ceiling division
+                    tiled = valid_neg_t.repeat(reps)
+                    perm = torch.randperm(tiled.numel(), device=batch.device)
+                    sampled_neg_t = tiled[perm[:required]]
+            else:
+                # If there are no negatives available, repeat the positives.
+                reps = (required + pos_t.numel() - 1) // pos_t.numel() if pos_t.numel() > 0 else 1
+                sampled_neg_t = pos_t.repeat(reps)[:required]
+            candidate_t = torch.cat([pos_t, sampled_neg_t])
+        
+        # Build the tail candidate triplets: (h, candidate, r)
+        h_val = batch[i, 0].expand(cand_size)
+        r_val = batch[i, 2].expand(cand_size)
+        t_triplets = torch.stack([h_val, candidate_t, r_val], dim=1)
+        t_candidate_list.append(t_triplets)
+        
+        # --- Head Prediction: For (t, r), predict the head candidate.
+        pos_h = torch.where(h_test_pos[i])[0]
+        valid_neg_h = torch.where(h_valid_neg[i] & (~h_test_pos[i]))[0]
+        if pos_h.numel() >= cand_size:
+            candidate_h = pos_h[:cand_size]
+        else:
+            required = cand_size - pos_h.numel()
+            if valid_neg_h.numel() > 0:
+                if valid_neg_h.numel() >= required:
+                    perm = torch.randperm(valid_neg_h.numel(), device=batch.device)
+                    sampled_neg_h = valid_neg_h[perm[:required]]
+                else:
+                    reps = (required + valid_neg_h.numel() - 1) // valid_neg_h.numel()
+                    tiled = valid_neg_h.repeat(reps)
+                    perm = torch.randperm(tiled.numel(), device=batch.device)
+                    sampled_neg_h = tiled[perm[:required]]
+            else:
+                reps = (required + pos_h.numel() - 1) // pos_h.numel() if pos_h.numel() > 0 else 1
+                sampled_neg_h = pos_h.repeat(reps)[:required]
+            candidate_h = torch.cat([pos_h, sampled_neg_h])
+        
+        # Build the head candidate triplets: (candidate, t, r)
+        t_val = batch[i, 1].expand(cand_size)
+        r_val = batch[i, 2].expand(cand_size)
+        h_triplets = torch.stack([candidate_h, t_val, r_val], dim=1)
+        h_candidate_list.append(h_triplets)
+    
+    # --- Step 3. Stack candidate triplets into final tensors ---
+    # Each is of shape (bs, cand_size, 3)
+    t_batch = torch.stack(t_candidate_list, dim=0)
+    h_batch = torch.stack(h_candidate_list, dim=0)
+    
+    return t_batch, h_batch
+
+
 
 def edge_match(edge_index, query_index):
     # O((n + q)logn) time
@@ -40,72 +154,6 @@ def edge_match(edge_index, query_index):
 
     return order[range], num_match
 
-
-
-# needs to be optimized
-def negative_sampling1(data, batch, num_negative, strict=True):
-    """
-    Generate negative samples for a batch of triples, avoiding edges that already exist in the graph.
-
-    Returns:
-        Tensor: A tensor of shape [batch_size, num_negative + 1, 3] with positive and negative samples.
-    """
-    
-    batch_size = len(batch)
-    pos_h_index, pos_t_index, pos_r_index = batch.t()
-    num_items = data.num_items
-    num_users = data.num_users
-
-    # If strict sampling is enabled, avoid sampling edges already present in the graph
-    if strict:
-        # Convert existing edges to a set for fast lookups
-        existing_edges = set((data.edge_index[0, i].item(), data.edge_index[1, i].item())
-                             for i in range(data.edge_index.size(1)))
-
-        neg_t_index = []
-        neg_h_index = []
-
-        # Generate negative tail samples for the first half of the batch
-        for h in pos_h_index[:batch_size // 2]:
-            h = h.item()
-            tail_negatives = set()  
-
-            while len(tail_negatives) < num_negative:
-                # Randomly sample a tail node and check if (h, t) exists
-                t_neg = random.randint(num_users, num_users + num_items - 1)
-                if (h, t_neg) not in existing_edges:
-                    tail_negatives.add(t_neg)
-            neg_t_index.append(list(tail_negatives))
-
-        # Generate negative head samples for the second half of the batch
-        for t in pos_t_index[batch_size // 2:]:
-            t = t.item()
-            head_negatives = set()
-
-            while len(head_negatives) < num_negative:
-                h_neg = random.randint(0, data.num_users - 1)
-                if (h_neg, t) not in existing_edges:
-                    head_negatives.add(h_neg)
-            neg_h_index.append(list(head_negatives))
-
-        # Convert to tensors
-        neg_t_index = torch.tensor(neg_t_index, device=batch.device)
-        neg_h_index = torch.tensor(neg_h_index, device=batch.device)
-        neg_t_index = neg_t_index.view(batch_size // 2, num_negative)
-        neg_h_index = neg_h_index.view(batch_size - (batch_size // 2), num_negative)
-
-    else:
-        # Random negative sampling without checking for existence in graph
-        neg_index = torch.randint(data.num_nodes, (batch_size, num_negative), device=batch.device)
-        neg_t_index, neg_h_index = neg_index[:batch_size // 2], neg_index[batch_size // 2:]
-
-    h_index = pos_h_index.unsqueeze(-1).repeat(1, num_negative + 1)
-    t_index = pos_t_index.unsqueeze(-1).repeat(1, num_negative + 1)
-    r_index = pos_r_index.unsqueeze(-1).repeat(1, num_negative + 1)
-    t_index[:batch_size // 2, 1:] = neg_t_index
-    h_index[batch_size // 2:, 1:] = neg_h_index
-
-    return torch.stack([h_index, t_index, r_index], dim=-1)
 
 
 
@@ -248,7 +296,7 @@ def compute_ranking(pred, target, mask=None):
     #pos_pred = (bs,1)
     if mask is not None:
         # filtered ranking
-        ranking = torch.sum((pos_pred <= pred) & mask, dim=-1) + 1
+        ranking = torch.sum((pos_pred < pred) & mask, dim=-1) + 1
     else:
         # unfiltered ranking
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
@@ -256,18 +304,36 @@ def compute_ranking(pred, target, mask=None):
     return ranking
     
 # adjusted method. Assumes pred is of size (bs, 1 + num_negs) used for evaluation on the amazon datasets (against 100 negative)
-def compute_ranking_against_num_negs(pred, target, mask=None):
+def compute_ranking_against_num_negs(pred, target=None, mask=None):
+    """
+    Computes the rank for each row by counting how many entries in pred are strictly greater
+    than the first entry. Assumes pred is of shape (bs, 1 + num_negs) where the first entry 
+    is the positive sample.
+
+    Parameters:
+        pred (torch.Tensor): The predictions of shape (bs, 1 + num_negs).
+        target: (Not used here, included for API compatibility)
+        mask: (Optional) A mask to apply; if provided, only entries where mask==True are considered.
+
+    Returns:
+        torch.Tensor: The rank for each sample in the batch (1-based indexing).
+    """
+    # Extract the positive prediction (assumed to be at index 0)
+    pos_pred = pred[:, 0:1]  # shape: (bs, 1)
     
-     # Sort predictions along the last dimension in descending order
-    sorted_pred, sorted_indices = pred.sort(dim=-1, descending=True)
-    
-    # Find where the positive sample (index 0 in `pred`) is located in the sorted predictions
-    positive_indices = (sorted_indices == 0).nonzero(as_tuple=True)
-    
-    # The second value in `positive_indices` gives the rank of the positive sample within each batch
-    rankings = positive_indices[1] + 1  # Convert 0-based to 1-based ranking
-    
+    if mask is not None:
+        # Apply the mask to the predictions (we assume mask has the same shape as pred)
+        # Only consider entries where mask is True.
+        # Note: Make sure that the positive sample is always unmasked.
+        pred_to_consider = torch.where(mask, pred, torch.tensor(float('-inf'), device=pred.device))
+    else:
+        pred_to_consider = pred
+
+    # For each row, count how many entries are strictly greater than the positive's score.
+    # This yields a 0-based rank (0 means the positive is the highest); add 1 to obtain a 1-based rank.
+    rankings = torch.sum(pred_to_consider > pos_pred, dim=-1) + 1
     return rankings
+
     
 
 def get_relevance_labels(t_mask, h_mask, pred_type="tail"):

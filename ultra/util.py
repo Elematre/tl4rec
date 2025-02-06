@@ -5,6 +5,7 @@ import copy
 import time
 import logging
 import argparse
+import datetime
 
 import yaml
 import jinja2
@@ -22,7 +23,17 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
-
+def set_eval_negs(name):
+    if name.startswith("Yelp") or name.startswith("Gowalla"):
+        print ("We will evaluate vs all negatives")
+        return -1
+    elif name.startswith("Amazon"):
+        print ("We will evaluate vs 100 negatives")
+        return 100
+    else: 
+        print ("We will evaluate vs 1000 negatives")
+        return 1000
+    
 
 def recursive_to_plain(d):
     """
@@ -62,8 +73,8 @@ def save_cfg_of_best_params(best_params, cfg):
     best_config.model["backbone_model"]["embedding_edge"]["hidden_dims"]    = [edge_emb_dim] * num_edge_emb_layers
 
     # Update simple_model parameters:
-    simple_model_multiplier = best_params["simple_model_multiplier"]
-    simple_model_dim = simple_model_multiplier * edge_emb_dim
+    #simple_model_multiplier = best_params["simple_model_multiplier"]
+    simple_model_dim =  best_params["simple_model_dim"]
     best_config.model["backbone_model"]["simple_model"]["input_dim"] = simple_model_dim 
     simple_model_num_hidden = best_params["simple_model_num_hidden"]
     best_config.model["backbone_model"]["simple_model"]["hidden_dims"] = [simple_model_dim] * simple_model_num_hidden
@@ -79,8 +90,9 @@ def save_cfg_of_best_params(best_params, cfg):
     output_dir = "/itet-stor/trachsele/net_scratch/tl4rec/config/recommender"
     os.makedirs(output_dir, exist_ok=True)
     
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     # Define the full file path:
-    file_path = os.path.join(output_dir, "best_config.yaml")
+    file_path = os.path.join(output_dir, f"best_config-{current_time}.yaml")
     
     # Save the configuration to the YAML file using safe_dump:
     with open(file_path, "w") as file:

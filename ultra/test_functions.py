@@ -4,26 +4,63 @@ from torch_geometric.data import Data
 import torch
 import random
 
+
 def test_pyG_graph(datas):
     """
-    Checks that the dataset is in correct form
+    Checks that the dataset is in correct form. In addition to verifying matching dimensions, 
+    this function verifies that:
+      - The edge_index has no duplicates.
+      - The edge_index is undirected (i.e. for every (u,v), (v,u) exists).
+      - All provided data objects (e.g., train, valid, test) share the same edge_index.
     """
-    # Assuming edge_index is a tensor of shape (2, num_edges)
+    # Helper to detect duplicate edges.
     def has_duplicate_edges(edge_index):
-        edge_set = set(map(tuple, edge_index.t().tolist()))  # Convert to set of tuples
-        return len(edge_set) < edge_index.shape[1] 
-    assert (not has_duplicate_edges(datas[0].edge_index)), "duplicated edges_detected in data."
-    for data in datas:
-        assert data.edge_index.size(1) == data.edge_attr.size(0), "size mismatch between edge_index and edge_attr"
-        assert data.edge_index.size(1) == data.edge_type.size(0), "size mismatch between edge_index and edge_type"
-        assert data.target_edge_index.size(1) == data.target_edge_attr.size(0), "size mismatch between target_edge_index and target_edge_attr"
-        assert data.target_edge_index.size(1) == data.target_edge_type.size(0), "size mismatch between target_edge_index and target_edge_type"
-        assert data.num_users == data.x_user.size(0), "size mismatch between num_users and x_user"
-        assert data.num_items == data.x_item.size(0), "size mismatch between num_items and x_item"
-        validate_graph (data)
-        #assert (not has_duplicate_edges(data.edge_index)), "duplicated edges_detected in data."
-        # to do test duplicate
-    print ("Graph looks good!")
+        edge_set = set(map(tuple, edge_index.t().tolist()))
+        return len(edge_set) < edge_index.shape[1]
+
+    # Helper to check that edge_index is undirected.
+    def is_undirected(edge_index):
+        # Convert to list of (u,v) edges and build a set for fast membership testing.
+        edges = edge_index.t().tolist()
+        edge_set = {tuple(e) for e in edges}
+        for u, v in edges:
+            if (v, u) not in edge_set:
+                return False
+        return True
+
+    # Use the first dataset's edge_index as a baseline.
+    base_edge_index = datas[0].edge_index
+    assert not has_duplicate_edges(base_edge_index), "Duplicated edges detected in data[0]."
+    assert is_undirected(base_edge_index), "edge_index in data[0] is not undirected."
+
+    for idx, data in enumerate(datas):
+        # Verify dimension matches.
+        assert data.edge_index.size(1) == data.edge_attr.size(0), \
+            f"Size mismatch between edge_index and edge_attr in dataset index {idx}"
+        assert data.edge_index.size(1) == data.edge_type.size(0), \
+            f"Size mismatch between edge_index and edge_type in dataset index {idx}"
+        assert data.target_edge_index.size(1) == data.target_edge_attr.size(0), \
+            f"Size mismatch between target_edge_index and target_edge_attr in dataset index {idx}"
+        assert data.target_edge_index.size(1) == data.target_edge_type.size(0), \
+            f"Size mismatch between target_edge_index and target_edge_type in dataset index {idx}"
+        assert data.num_users == data.x_user.size(0), \
+            f"Size mismatch between num_users and x_user in dataset index {idx}"
+        assert data.num_items == data.x_item.size(0), \
+            f"Size mismatch between num_items and x_item in dataset index {idx}"
+        
+        # Validate node IDs 
+        validate_graph(data)
+
+        # Check duplicate edges and undirectedness.
+        assert not has_duplicate_edges(data.target_edge_index), \
+            f"Duplicated edges detected in target_edge_index {idx}"
+
+        # Verify that all datasets share the same edge_index.
+        assert torch.equal(data.edge_index, base_edge_index), \
+            f"edge_index in dataset index {idx} differs from that of the first dataset"
+
+    print("Graph looks good!")
+
 
         
 

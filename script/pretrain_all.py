@@ -5,9 +5,10 @@ import sys
 import copy
 import math
 import pprint
+import logging
+import yaml
 from itertools import islice
 from functools import partial
-
 import torch
 from torch import optim
 from torch import nn
@@ -16,6 +17,7 @@ from torch import distributed as dist
 from torch.utils import data as torch_data
 from torch_geometric.data import Data
 import optuna
+from filelock import FileLock
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
@@ -26,6 +28,12 @@ separator = ">" * 30
 line = "-" * 30
 k = 20 # ndcg@k
 nr_eval_negs = -1 #  == -1 evaluation on all negatives or nr_eval_negs otherwise
+
+# List of datasets you want to train on
+DATASETS = [
+    "Epinions", "LastFM", "BookX", "Ml1m", "Gowalla",
+    "Amazon_Beauty", "Amazon_Fashion", "Amazon_Men", "Amazon_Games", "Yelp18"
+]
 
 def multigraph_collator(batch, train_graphs):
     num_graphs = len(train_graphs)
@@ -199,19 +207,10 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
         result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
         #result = 0
         # Decide wether we prune
-        trial.report(result, step=epoch)
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
         if result > best_result:
             best_result = result
             best_epoch = epoch
             
-        if wandb_on and util.get_rank() == 0:
-            wandb.log({
-                "epoch": epoch,
-                "val_metric": result,
-                "trial": trial.number,
-            })
 
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
@@ -220,6 +219,21 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
     for model in models:  
         model.ultra.load_state_dict(state["model"])
     util.synchronize()
+
+    # save the final model state
+    if rank == 0:
+        # Extract the last 6 letters of each dataset name
+        dataset_names = cfg.dataset['graphs'][0]  # Example: ['Amazon_Beauty', 'Amazon_Games']
+    
+        # Construct the checkpoint filename
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_name = f"{dataset_names}.pth"
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+    
+        logger.warning(f"Save final_ckpt to {checkpoint_path}")
+        torch.save(state, checkpoint_path)
+        
     return best_result
     
 
@@ -228,7 +242,7 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
 
 
 @torch.no_grad()
-def test(cfg, models, test_data, filtered_data=None, context = 0):
+def test(cfg, models, test_data, filtered_data=None, context = 0, return_metrics = False):
     # context is used for determining the calling context of test (train, valid, test)
     
     world_size = util.get_world_size()
@@ -237,7 +251,7 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
     # test_data is a tuple of validation/test datasets
     # process sequentially
     # we target the ndcg@k metric
-    all_metrics = []
+    all_metrics = {}
     dataset_nr = 0
     for model, test_graph, filters in zip(models, test_data, filtered_data):
         num_users = test_graph.num_users
@@ -396,7 +410,8 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
                     else:
                         score = (all_ranking <= threshold).float().mean()
                 logger.warning("%s: %g" % (metric, score))
-                metrics[metric] = score
+                all_metrics[metric] = all_metrics.get(metric, 0) + score
+                
             
                 
         mrr = (1 / all_ranking.float()).mean()
@@ -409,219 +424,171 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
             
     # to me it needs this
     util.synchronize()
-    avg_metric = sum(all_metrics) / len(all_metrics)
-    return avg_metric
+    for key in all_metrics.keys():
+        all_metrics =/ len(models)
+        
+    return  all_metrics["ndcg@k"] if not return_metrics else metrics
 
 
 
 
-if __name__ == "__main__":
-    args, vars = util.parse_args()
-    cfg = util.load_config(args.config, context=vars)
-    working_dir = util.create_working_directory(cfg)
 
-    torch.manual_seed(args.seed + util.get_rank())
+# (import your utilities and model-related modules, e.g. util, Gru_Ultra, Ultra, train_and_validate, etc.)
 
-    logger = util.get_root_logger()
-    if util.get_rank() == 0:
-        logger.warning("Random seed: %d" % args.seed)
-        logger.warning("Config file: %s" % args.config)
-        logger.warning(pprint.pformat(cfg))
+
+
+def log_results(dataset_name, result_metrics, additional_info=None):
+    """
+    Logs the results for a dataset to a unified JSON file.
+
+    :param dataset_name: Name of the dataset (e.g., "LastFM").
+    :param result_metrics: A dictionary with test/valid metrics.
+    :param additional_info: (Optional) A dict with additional metadata (e.g., config info).
+    """
+    lock = FileLock(LOCK_FILE)
+    with lock:
+        # Load existing results if the file exists.
+        if os.path.exists(RESULTS_FILE):
+            with open(RESULTS_FILE, "r") as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        # Prepare the result entry.
+        entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "dataset": dataset_name,
+            "results": result_metrics,
+        }
+        if additional_info:
+            entry["additional_info"] = additional_info
+
+        # Save or update the entry for this dataset.
+        data[dataset_name] = entry
+
+        # Write the updated results back.
+        with open(RESULTS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+            
+def load_base_config(config_path):
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+def mark_dataset_complete(working_dir, dataset_name):
+    marker_file = os.path.join(working_dir, f"{dataset_name}_completed.txt")
+    with open(marker_file, "w") as f:
+        f.write("completed")
+
+def dataset_completed(working_dir, dataset_name):
+    marker_file = os.path.join(working_dir, f"{dataset_name}_completed.txt")
+    return os.path.exists(marker_file)
+
+def update_bpe(cfg, train_data):
+    """
+    Set bpe (batches per epoch) so that:
+      bpe * batch_size = 2.5 * (size of train.edge_index)
+    If your train_data is a list of graphs, you might want to sum over all graphs.
+    """
+    total_edges = sum([graph.target_edge_index.size(1) for graph in train_data])
+    batch_size = cfg["train"]["batch_size"]
+    # Calculate bpe from the formula
+    bpe = int(2.5 * total_edges / batch_size)
+    cfg["train"]["batch_per_epoch"] = bpe
+    return cfg
+
+def train_on_dataset(cfg, dataset_name, working_dir, device):
+    # Update dataset configuration
+    cfg_trial = copy.deepcopy(cfg)
+    cfg_trial["dataset"]["graphs"] = [dataset_name]
+
+    # Create a unique working directory for the dataset, if needed
+    dataset_working_dir = os.path.join(working_dir, dataset_name)
+    os.makedirs(dataset_working_dir, exist_ok=True)
     
-    task_name = cfg.task["name"]
-    dataset = util.build_dataset(cfg)
-    device = util.get_device(cfg)
+    nr_eval_negs = util.set_eval_negs(dataset_name)
+    cfg_trial["task"]["nr_eval_negs"] = nr_eval_negs
+    # (Optionally) Setup logging
+    logger = logging.getLogger()
+    logger.info(f"Starting training for dataset {dataset_name}")
     
+    # Load dataset and update the configuration as needed
+    dataset = util.build_dataset(cfg_trial)
     train_data, valid_data, test_data = dataset._data[0], dataset._data[1], dataset._data[2]
-
-    # check if we are evaluating on amazon
-    dataset_name = cfg.dataset['graphs'][0]  # Example: ['Amazon_Beauty', 'Amazon_Games']
-    is_amazon = dataset_name.startswith("Amazon")
-    if is_amazon:
-        print ("We are using a amazon dataset")
-        nr_eval_negs = 100
-        k = 10
-        
-    # make datasets smaller if we dont use node_features
-    if not cfg.model.get("node_features", True):
-        print("discard node_features")
-        for graph in train_data:
-            graph.x_user = None
-            graph.x_item = None
-        for graph in valid_data:
-            graph.x_user = None
-            graph.x_item = None
-        for graph in test_data:
-            graph.x_user = None
-            graph.x_item = None
     
-    if "fast_test" in cfg.train:
-        num_val_edges = cfg.train.fast_test
-        if util.get_rank() == 0:
-            logger.warning(f"Fast evaluation on {num_val_edges} samples in validation")
-        short_valid = [copy.deepcopy(vd) for vd in valid_data]
-        for graph in short_valid:
-            mask = torch.randperm(graph.target_edge_index.shape[1])[:num_val_edges]
-            graph.target_edge_index = graph.target_edge_index[:, mask]
-            graph.target_edge_type = graph.target_edge_type[mask]
-        
-        short_valid = [sv.to(device) for sv in short_valid]
-
+    # Set the device for the data
     train_data = [td.to(device) for td in train_data]
     valid_data = [vd.to(device) for vd in valid_data]
-    test_data = [tst.to(device) for tst in test_data]
+    test_data  = [td.to(device) for td in test_data]
     
-     # for transductive setting, use the whole graph for filtered ranking
-    filtered_data = [
-        Data(
-            edge_index=torch.cat([trg.target_edge_index, valg.target_edge_index, testg.target_edge_index], dim=1), 
-            edge_type=torch.cat([trg.target_edge_type, valg.target_edge_type, testg.target_edge_type,]),
-            num_users = trg.num_users,
-            num_items = trg.num_items,
-            num_nodes=trg.num_nodes).to(device)
-            
-        for trg, valg, testg in zip(train_data, valid_data, test_data)
-    ]
+    # Update bpe based on the size of the training graph(s)
+    cfg_trial = update_bpe(cfg_trial, train_data)
+    logger.info(f"Updated bpe to {cfg_trial['train']['batch_per_epoch']} for dataset {dataset_name}")
 
+    # (Optional) You can update additional parameters based on the dataset, for instance:
+    if dataset_name.startswith("Amazon"):
+        # Example: adjust evaluation parameters
+        cfg_trial["task"]["nr_eval_negs"] = 100
+        cfg_trial["task"]["k"] = 10
 
+    # --- Build and Initialize the Model(s) ---
+    ultra_ref = Ultra(cfg_trial["model"], False)
+    models = []
+    def weights_init(m):
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                torch.nn.init.zeros_(m.bias)
+    for td in train_data:
+        # Make a copy of the model config and update input dimensions etc.
+        model_cfg = copy.deepcopy(cfg_trial["model"])
+        # Assume input dimension comes from td.edge_attr (adjust if necessary)
+        model_cfg["edge_projection"]["input_dim"] = td.edge_attr.size(1)
+        model = Gru_Ultra(model_cfg, ultra_ref, cfg_trial.get("train", {}).get("wandb", False))
+        model.apply(weights_init)
+        models.append(model)
     
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"hyperparam_search-{current_time}"
-    wandb_on = cfg.train["wandb"]
-    if wandb_on:
-        wandb.init(
-            entity = "pitri-eth-z-rich", project="tl4rec", name=run_name, config=cfg)
-
-    def objective(trial):
-        try:
-            # --- Sample Learning Rate Hyperparameters ---
-            proj_edge_lr = trial.suggest_float("projection_edge_lr", 1e-5, 1e-3, log = True)
-            bb_conv_lr   = trial.suggest_float("backbone_conv_lr", 1e-5, 1e-3, log = True)
-            bb_mlp_edge_lr = trial.suggest_float("backbone_mlp_edge_lr", 1e-5, 1e-3, log = True)
-        
-            # --- Sample Edge Projection Hyperparameters ---
-            edge_proj_use_dropout    = trial.suggest_categorical("edge_projection_use_dropout", [False, True])
-            edge_proj_dropout_rate   = trial.suggest_float("edge_projection_dropout_rate", 0.0, 0.5)
-            edge_proj_use_layer_norm = trial.suggest_categorical("edge_projection_use_layer_norm", [False, True])
-            
-            num_edge_proj_layers = trial.suggest_int("num_edge_proj_layers", 1, 5)
-            edge_emb_dim = trial.suggest_categorical("edge_emb_dim", [2, 4, 8, 16])
-            edge_projection_hidden_dims  = []
-            for i in range(num_edge_proj_layers):
-                edge_projection_hidden_dims.append(edge_emb_dim)
-                
-        
-            # --- Sample Embedding Edge Hyperparameters ---
-            embedding_edge_use_dropout    = trial.suggest_categorical("embedding_edge_use_dropout", [False, True])
-            embedding_edge_dropout_rate   = trial.suggest_float("embedding_edge_dropout_rate", 0.0, 0.5)
-            embedding_edge_use_layer_norm = trial.suggest_categorical("embedding_edge_use_layer_norm", [False, True])
-        
-            num_edge_emb_layers = trial.suggest_int("num_edge_emb_layers", 1, 6)
-            embedding_edge_hidden_dims = []
-            for i in range(num_edge_emb_layers):
-                embedding_edge_hidden_dims.append(edge_emb_dim)
-        
-            
-            simple_model_dim = trial.suggest_categorical("simple_model_dim", [32,64])
-            simple_model_hidden_dims = []
-            simple_model_num_hidden = trial.suggest_int("simple_model_num_hidden", 2, 7)
-            for i in range(simple_model_num_hidden):
-                simple_model_hidden_dims.append(simple_model_dim)
-        
-            # --- Sample Task Hyperparameters ---
-            # Ensure bs * num_negative <= 128. Assuming cfg.train["batch_size"] is already set.
-            max_num_negative = 1024 // cfg.train["batch_size"]
-            num_negative = trial.suggest_int("num_negative", 1, max_num_negative)
-            adversarial_temperature = trial.suggest_categorical("adversarial_temperature", [0.0, 0.5, 1.0])
-        
-            # --- Update the configuration ---
-            cfg_trial = copy.deepcopy(cfg)
-            
-            # Optimizer parameters:
-            cfg_trial.optimizer["projection_edge_lr"] = proj_edge_lr
-            cfg_trial.optimizer["backbone_conv_lr"] = bb_conv_lr
-            cfg_trial.optimizer["backbone_mlp_edge_lr"] = bb_mlp_edge_lr
-        
-            # Update edge_projection parameters:
-            cfg_trial.model["edge_projection"]["use_dropout"]    = edge_proj_use_dropout
-            cfg_trial.model["edge_projection"]["dropout_rate"]   = edge_proj_dropout_rate
-            cfg_trial.model["edge_projection"]["use_layer_norm"] = edge_proj_use_layer_norm
-            cfg_trial.model["edge_projection"]["hidden_dims"] = edge_projection_hidden_dims
-        
-            # Update embedding_edge parameters (assuming they reside under backbone_model):
-            cfg_trial.model["backbone_model"]["embedding_edge"]["use_dropout"]    = embedding_edge_use_dropout
-            cfg_trial.model["backbone_model"]["embedding_edge"]["dropout_rate"]   = embedding_edge_dropout_rate
-            cfg_trial.model["backbone_model"]["embedding_edge"]["use_layer_norm"] = embedding_edge_use_layer_norm
-            cfg_trial.model["backbone_model"]["embedding_edge"]["hidden_dims"]    = embedding_edge_hidden_dims
-        
-            # Update simple_model parameters (assuming they reside under backbone_model):
-            cfg_trial.model["backbone_model"]["simple_model"]["input_dim"] = simple_model_dim
-            cfg_trial.model["backbone_model"]["simple_model"]["hidden_dims"] = simple_model_hidden_dims
-        
-            # Update task parameters:
-            cfg_trial.task["num_negative"] = num_negative
-            cfg_trial.task["adversarial_temperature"] = adversarial_temperature
-        
-        
-            # --- Build the models ---
-            # Here we assume that train_data, valid_data, test_data, short_valid, and filtered_data 
-            # have already been created globally (and moved to device).
-            ultra_ref = Ultra(cfg_trial.model, False)
-            models = []
-            def weights_init(m):
-                if isinstance(m, nn.Linear):
-                    nn.init.xavier_uniform_(m.weight)
-                    if m.bias is not None:
-                        nn.init.zeros_(m.bias)
-        
-        
-            for td in train_data:
-                # Build a copy of the model configuration for each dataset.
-                model_cfg = copy.deepcopy(cfg_trial.model)
-                # For this version, we assume node features are not used.
-                model_cfg["edge_projection"]["input_dim"] = td.edge_attr.size(1)
-                model = Gru_Ultra(model_cfg, ultra_ref, wandb_on)
-                model.apply(weights_init)
-                models.append(model)
-        
-            # --- Train and Validate ---
-            # Use the pre-built short_valid and filtered_data for consistency.
-            val_metric = train_and_validate(
-                cfg_trial,trial, models, train_data,
-                valid_data if "fast_test" not in cfg_trial.train else short_valid,
-                filtered_data=filtered_data,
-                batch_per_epoch=cfg_trial.train["batch_per_epoch"]
-            )
-            
-            return val_metric
-        except RuntimeError as e:
-            if "out of memory" in str(e):
-                print(f"Trial {trial.number} encountered OOM. Pruning trial...")
-                torch.cuda.empty_cache()
-                raise optuna.exceptions.TrialPruned()  # Marks it as pruned
-        else:
-            raise e  
-        
-    storage_url = "sqlite:////itet-stor/trachsele/net_scratch/tl4rec/optuna_hyperparam_tuning.db"
-
-    #study = optuna.create_study(
-     #   direction="maximize", 
-      #  pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)  
-    #)
-
-    study = optuna.create_study(
-        direction="maximize",
-        storage=storage_url,  # Store trials in an SQLite file
-        study_name="my_hyperparam_study",
-        load_if_exists=True,  # Resume trials if the file exists
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)
+    # --- Train and Validate ---
+    # Depending on your setup, you might want to use a function similar to train_and_validate
+    val_metric = train_and_validate(
+        cfg_trial, None, models, train_data, valid_data,
+        filtered_data=None,  # Update if needed
+        batch_per_epoch=cfg_trial["train"]["batch_per_epoch"]
     )
-    print("Existing studies:", optuna.get_all_study_names(storage=storage_url))
-        
-    study.optimize(objective, n_trials=100)  # Adjust n_trials based on your available resources
-    best_params = study.best_trial.params
-    util.save_cfg_of_best_params(best_params, cfg)
-    logger.warning("hyperparam search done and cfg saved")
+    
+    logger.info(f"Finished training for {dataset_name} with validation metric {val_metric}")
+    # Save final model or configuration if desired
+    util.save_cfg_of_best_params({"final_val_metric": val_metric}, cfg_trial)
+    
+    # Mark the dataset as completed.
+    mark_dataset_complete(working_dir, dataset_name)
+    
+def main():
+    # Parse your base config and any CLI arguments
+    base_config_path = "path/to/your/config.yaml"  # adjust path as needed
+    base_cfg = load_base_config(base_config_path)
+    working_dir = util.create_working_directory(base_cfg)
+    
+    # Set a global seed and device
+    torch.manual_seed(args.seed + util.get_rank())
+    device = util.get_device(base_cfg)
+    
+    # Iterate over the list of datasets
+    for dataset_name in DATASETS:
+        if dataset_completed(working_dir, dataset_name):
+            print(f"Dataset {dataset_name} already completed, skipping.")
+            continue
+        try:
+            # If a job crashes or is interrupted, this dataset remains unmarked
+            train_on_dataset(base_cfg, dataset_name, working_dir, device)
+        except Exception as e:
+            # Log the error. The dataset won't be marked complete.
+            print(f"Training failed for dataset {dataset_name} with error: {e}")
+            # Optionally, re-raise or simply continue to the next dataset.
+            continue
+
+if __name__ == "__main__":
+    main()
+
 
     
 

@@ -110,7 +110,7 @@ class CategoriesTransformer(BaseEstimator, TransformerMixin):
 
 class CustomHashingVectorizer(BaseEstimator, TransformerMixin):
     """
-    A custom transformer to apply HashingVectorizer column-wise on a 2D array.
+    A custom transformer to apply HashingVectorizer column-wise on a 2D array. 
     """
     def __init__(self, n_features=32):
         self.n_features = n_features

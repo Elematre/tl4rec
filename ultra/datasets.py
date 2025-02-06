@@ -45,123 +45,279 @@ def plot_item_distribution(edge_index, split_indices, labels, filter_by='item'):
 
 
 
-class LastFM(InMemoryDataset):
+class BaseRecDataset(InMemoryDataset):
     """
-    LastFM Dataset for recommender systems.
-    Includes edge features from user-item interactions.
+    Base class for recommender system datasets that share a common structure.
+    Implements shared operations:
+      - Loading a CSV file with a "raw_with_splits" naming convention.
+      - Adjusting item IDs to start from num_users.
+      - Splitting the data into train/test (using the "split" column) and further
+        splitting train into train/validation sets using a stratified split.
+      - Processing edge features using preprocess_data.process_df.
+      - Building an undirected graph for all datasets (using train edges).
+      - Adding generic user/item features.
+      
+    Subclasses should override:
+      - custom_preprocessing(self, df): to handle dataset‐specific modifications.
+      - get_meta_info(self): to set the correct meta_info dictionary.
+      - (optionally) train_split_ratio() and valid_split_ratio() for different splits.
+      - raw_file_names (if the raw file name differs).
     """
-    name = "lastfm"
     
     def __init__(self, root, transform=None, pre_transform=None):
+        # Expect that the subclass sets self.dataset_name (e.g., "ml-1m", "epinions", etc.)
+        assert hasattr(self, "dataset_name"), "Subclasses must define self.dataset_name"
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
-
+        
     @property
     def raw_dir(self):
-        return os.path.join(self.root, self.name, "raw")
-
+        return os.path.join(self.root, self.dataset_name, "raw")
+        
     @property
     def processed_dir(self):
-        return os.path.join(self.root, self.name, "processed")
-
+        return os.path.join(self.root, self.dataset_name, "processed")
+        
     @property
     def raw_file_names(self):
-        return ["lastfm_raw_with_splits.csv"]
-
+        # Assumes the raw file is named like "<dataset_name>_raw_with_splits.csv"
+        return [f"{self.dataset_name}_raw_with_splits.csv"]
+    
     @property
     def processed_file_names(self):
         return "data.pt"
-
+    
     def process(self):
-        # Load data
-        df = pd.read_csv(os.path.join(self.raw_dir, "lastfm_raw_with_splits.csv"))
-        df.drop(columns=["timestamp"], inplace=True)
-
-        # Get user and item counts
+        # --- 1. Load and (optionally) preprocess the CSV file ---
+        raw_path = os.path.join(self.raw_dir, self.raw_file_names[0])
+        df = pd.read_csv(raw_path)
+        df = self.custom_preprocessing(df)  # dataset-specific processing
+        
+        # --- 2. Adjust item IDs ---
+        # Compute the number of users (assumes user IDs start at 0)
         num_users = df['user'].max() + 1
-        df['item'] += num_users  # Adjust item IDs
+        # At this point, each dataset is expected to have a column named "item"
+        # (subclasses should rename "items" to "item" if necessary)
+        df['item'] = df['item'] + num_users  # shift item IDs so they do not overlap with user IDs
         num_items = df['item'].max() - num_users + 1
         
-        # Split into train/test
+        # --- 3. Split data into train and test sets ---
         train_df = df[df['split'] == 'train'].drop(columns=['split'])
-        test_df = df[df['split'] == 'test'].drop(columns=['split'])
+        test_df  = df[df['split'] == 'test'].drop(columns=['split'])
         
-        # Convert to tensor
+        # --- 4. Process edge features using meta_info ---
+        meta_info = self.get_meta_info()
+        
+        # Concatenate train and test dataframes to ensure consistent processing
+        combined_df = pd.concat([train_df, test_df], axis=0)
+        
+        # Process the combined DataFrame once.
+        combined_edges_features = preprocess_data.process_df((combined_df, meta_info))
+        
+        # Split the processed features back into train and test parts.
+        train_edges_features = combined_edges_features[:len(train_df)]
+        test_edges_features  = combined_edges_features[len(train_df):]
+        
+        # --- 5. Create edge index (user-item pairs) ---
         train_edges = torch.tensor(train_df[['user', 'item']].values.T, dtype=torch.long)
-        test_edges = torch.tensor(test_df[['user', 'item']].values.T, dtype=torch.long)
+        test_edges  = torch.tensor(test_df[['user', 'item']].values.T, dtype=torch.long)
         
-        # Process ratings
-        meta_info = preprocess_data.get_meta_info()
-        meta_info["numerical_cols"] = ["rating"]
-        meta_info["drop_cols"] = ["user", "item"]
-        train_edges_features = preprocess_data.process_df((train_df, meta_info))
-        test_edges_features = preprocess_data.process_df((test_df, meta_info))
-        
-        # Stratified split for validation
-        train_indices, valid_indices = preprocess_data.stratified_split(train_edges, [0.9, 0.1], filter_by="item")[:2]
+        # --- 6. Split train further into train and validation sets ---
+        train_indices, valid_indices = preprocess_data.stratified_split(
+            train_edges, [self.train_split_ratio(), self.valid_split_ratio()], filter_by="item"
+        )[:2]
         train_target_edges = train_edges[:, train_indices]
         valid_target_edges = train_edges[:, valid_indices]
         train_target_edges_features = train_edges_features[train_indices, :]
         valid_target_edges_features = train_edges_features[valid_indices, :]
         
-        # Build undirected edge_index
+        # --- 7. Build undirected edge_index from the training target edges ---
+        # Create a symmetric graph by concatenating the original and flipped edges.
         train_edges_combined = torch.cat([train_target_edges, train_target_edges.flip(0)], dim=1)
         train_edge_types = torch.cat([
             torch.zeros(train_target_edges.size(1), dtype=torch.int64),
             torch.ones(train_target_edges.size(1), dtype=torch.int64)
         ], dim=0)
-        train_edges_combined_features = torch.cat([train_target_edges_features, train_target_edges_features], dim=0)
+        train_edges_combined_features = torch.cat([train_target_edges_features,
+                                                     train_target_edges_features], dim=0)
         
+        # --- 8. Create edge types for valid and test sets ---
         valid_edge_types = torch.zeros(valid_target_edges.size(1), dtype=torch.int64)
-        test_edge_types = torch.zeros(test_edges.size(1), dtype=torch.int64)
+        test_edge_types  = torch.zeros(test_edges.size(1), dtype=torch.int64)
         train_target_edge_types = torch.zeros(train_target_edges.size(1), dtype=torch.int64)
         
-        # Number of nodes and relations
+        # --- 9. Build Data objects for train, valid, and test ---
         num_nodes = num_users + num_items
-        num_relations = 2
+        num_relations = 2  # for the two types in train_edges_combined
         
-        # Construct Data objects
         train_data = Data(
-            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            edge_index=train_edges_combined,
+            edge_type=train_edge_types,
+            edge_attr=train_edges_combined_features,
             num_nodes=num_nodes,
-            target_edge_index=train_target_edges, target_edge_type=train_target_edge_types, target_edge_attr=train_target_edges_features,
+            target_edge_index=train_target_edges,
+            target_edge_type=train_target_edge_types,
+            target_edge_attr=train_target_edges_features,
             num_relations=num_relations
         )
         
         valid_data = Data(
-            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            edge_index=train_edges_combined,
+            edge_type=train_edge_types,
+            edge_attr=train_edges_combined_features,
             num_nodes=num_nodes,
-            target_edge_index=valid_target_edges, target_edge_type=valid_edge_types, target_edge_attr=valid_target_edges_features,
+            target_edge_index=valid_target_edges,
+            target_edge_type=valid_edge_types,
+            target_edge_attr=valid_target_edges_features,
             num_relations=num_relations
         )
         
         test_data = Data(
-            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr=train_edges_combined_features,
+            edge_index=train_edges_combined,
+            edge_type=train_edge_types,
+            edge_attr=train_edges_combined_features,
             num_nodes=num_nodes,
-            target_edge_index=test_edges, target_edge_type=test_edge_types, target_edge_attr=test_edges_features,
+            target_edge_index=test_edges,
+            target_edge_type=test_edge_types,
+            target_edge_attr=test_edges_features,
             num_relations=num_relations
         )
         
-        # Create generic user/item features
+        # --- 10. Create generic node features (e.g., all ones) ---
         user_features = torch.ones((num_users, 1), dtype=torch.float32)
         item_features = torch.ones((num_items, 1), dtype=torch.float32)
-        
-        for data in [train_data, valid_data, test_data]:
-            data.num_users = num_users
-            data.num_items = num_items
-            data.x_user = user_features
-            data.x_item = item_features
-        
-        # Pre-transform if provided
+        for d in [train_data, valid_data, test_data]:
+            d.num_users = num_users
+            d.num_items = num_items
+            d.x_user = user_features
+            d.x_item = item_features
+            
+        # --- 11. Optionally pre-transform ---
         if self.pre_transform is not None:
             train_data = self.pre_transform(train_data)
             valid_data = self.pre_transform(valid_data)
-            test_data = self.pre_transform(test_data)
+            test_data  = self.pre_transform(test_data)
             
-        test_functions.test_pyG_graph([train_data,valid_data,test_data])
-        # Save processed data
+        # --- 12. (Optional) Test the constructed graph ---
+        test_functions.test_pyG_graph([train_data, valid_data, test_data])
+        
+        # --- 13. Save the processed data ---
         torch.save(self.collate([train_data, valid_data, test_data]), self.processed_paths[0])
+        
+    def custom_preprocessing(self, df):
+        """
+        Override this method in subclasses if custom DataFrame processing is needed.
+        For example, renaming columns, dropping unnecessary columns, or adjusting ratings.
+        By default, we rename "items" to "item" if present.
+        """
+        if "items" in df.columns:
+            df = df.rename(columns={"items": "item"})
+        return df
+    
+    def get_meta_info(self):
+        """
+        Override this method in subclasses to provide the appropriate meta_info.
+        By default, we assume the only numerical column is "rating", and that we drop "user" and "item".
+        """
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["rating"]
+        meta_info["drop_cols"] = ["user", "item"]
+        return meta_info
+    
+    def train_split_ratio(self):
+        """Return the ratio for training data (default 0.8)."""
+        return 0.8
+    
+    def valid_split_ratio(self):
+        """Return the ratio for validation data (default 0.2)."""
+        return 0.2
 
+
+# ============================================================================
+# Subclass for the Book-x dataset
+# ============================================================================
+class BookX(BaseRecDataset):
+    dataset_name = "book-x"
+    
+    def custom_preprocessing(self, df):
+        # Rename columns if necessary
+        df = super().custom_preprocessing(df)
+        # Drop the timestamp column since it doesn't contain any information
+        if "timestamp" in df.columns:
+            df = df.drop(columns=["timestamp"])
+        # Adjust rating:
+        # Ratings are between 0 and 10, with 0 as a default.
+        # Replace all 0 ratings with the average of the non-zero ratings.
+        nonzero_ratings = df.loc[df["rating"] != 0, "rating"]
+        avg_rating = nonzero_ratings.mean() if not nonzero_ratings.empty else 0.0
+        df.loc[df["rating"] == 0, "rating"] = avg_rating
+        return df
+
+
+# ============================================================================
+# Subclass for the ml-1m dataset
+# ============================================================================
+class Ml1m(BaseRecDataset):
+    dataset_name = "ml-1m"
+    
+    def custom_preprocessing(self, df):
+        # For ml-1m, we just rename "items" to "item" if needed.
+        df = super().custom_preprocessing(df)
+        # If you wish to keep the timestamp, do nothing further.
+        return df
+        
+    def get_meta_info(self):
+        # In epinions, we process both "rating" and "helpfulness" as numerical,
+        # and "category" as a categorical variable.
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["rating", "timestamp"]
+        meta_info["drop_cols"] = ["user", "item"]
+        return meta_info
+  
+
+
+# ============================================================================
+# Subclass for the Epinions dataset
+# ============================================================================
+
+# Problems with categorical
+class Epinions(BaseRecDataset):
+    dataset_name = "epinions"
+    
+    def custom_preprocessing(self, df):
+        # Rename "items" to "item" if needed.
+        df = super().custom_preprocessing(df)
+        # In epinions, you might wish to keep timestamp.
+        # Ensure the 'category' column is of type string since its categorical
+        if 'category' in df.columns:
+            df['category'] = df['category'].astype(str)
+        # and "helpfulness" (numerical). No additional changes here.
+        return df
+
+    def get_meta_info(self):
+        # In epinions, we process both "rating" and "helpfulness" as numerical,
+        # and "category" as a categorical variable.
+        meta_info = preprocess_data.get_meta_info()
+        meta_info["numerical_cols"] = ["rating", "helpfulness"]
+        meta_info["categorical_cols"] = ["category"]
+        meta_info["drop_cols"] = ["user", "item"]
+        return meta_info
+
+# ============================================================================
+# Subclass for the LastFM dataset
+# ============================================================================
+class LastFM(BaseRecDataset):
+    dataset_name = "lastfm"
+    
+    def custom_preprocessing(self, df):
+        # Rename "items" to "item" if needed.
+        df = super().custom_preprocessing(df)
+         # Drop the timestamp column since it doesn't contain any information
+        if "timestamp" in df.columns:
+            df = df.drop(columns=["timestamp"])
+        return df
+
+  
 
 class Gowalla(InMemoryDataset):
     """
