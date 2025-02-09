@@ -50,10 +50,26 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     train_loader = torch_data.DataLoader(target_triplets_with_idx, cfg.train.batch_size, sampler=sampler)
 
     batch_per_epoch = batch_per_epoch or len(train_loader)
-    
-    cls = cfg.optimizer.pop("class")
-    #optimizer = getattr(optim, cls)(model.parameters(), **cfg.optimizer)
-    optimizer = torch.optim.RMSprop(model.parameters(), lr=1.0e-3, alpha=0.99)
+    edge_features = cfg.model.get("edge_features", False)
+    param_groups = []
+    # If edge features are used, add the backbone MLP for edges
+    if edge_features:
+        param_groups.append({
+            "params": model.ultra.edge_mlp.parameters(),
+            "lr": cfg.optimizer["backbone_mlp_edge_lr"]
+        })
+        param_groups.append({
+            "params": model.edge_projection.parameters(),
+            "lr": cfg.optimizer["projection_edge_lr"]
+        })
+
+        
+
+    # Create the optimizer with the parameter groups.
+    # Pop the optimizer class name from the configuration and initialize it.
+    optimizer_cls_name = cfg.optimizer.pop("class")
+    optimizer_cls = getattr(optim, optimizer_cls_name)
+    optimizer = optimizer_cls(param_groups)
     #scheduler = StepLR(optimizer, step_size= 4, gamma=0.5) 
     #scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3, verbose=False)
     num_params = sum(p.numel() for p in model.parameters())
@@ -260,6 +276,12 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         #test_functions.debug_edge_attr_alignment(test_data, torch.cat([batch,target_edge_attr], dim = 1))
         #raise ValueError("until here only")
         #nr_eval_negs = 100
+        
+        if filtered_data is None:
+            t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
+        else:
+            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch, context = 2)
+            
         if nr_eval_negs == -1:
             t_batch, h_batch = tasks.all_negative(test_data, batch)
             t_pred = model(test_data, t_batch, target_edge_attr)
@@ -271,7 +293,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
             t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
             # test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
-            
+    
             # mask out all scores of known edges. 
             t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
             # mask out pos_t/h_index 
@@ -370,10 +392,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             tail_ndcgs +=  [t_ndcg]
 
 
-        if filtered_data is None:
-            t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
-        else:
-            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch, context = 2)
+        
         # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
         
         pos_h_index, pos_t_index, pos_r_index = batch.t()
@@ -531,8 +550,8 @@ if __name__ == "__main__":
     epochs = cfg.train["num_epoch"]
     bs = cfg.train["batch_size"]
     bpe = (train_data.edge_index.size(1) / bs) // epochs 
-    #cfg.train["batch_per_epoch"]= int(bpe)
-    cfg.train["batch_per_epoch"]= 5
+    cfg.train["batch_per_epoch"]= int(bpe)
+    #cfg.train["batch_per_epoch"]= 5
     print (f"bpe {bpe}")
     # make datasets smaller if we dont use node_features
     if not cfg.model.get("node_features", True):
@@ -542,7 +561,7 @@ if __name__ == "__main__":
         valid_data.x_item = None
         test_data.x_user = None
         test_data.x_item = None
-        print ("discarded user_features")
+        print ("discarded node_features")
     else:
         cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
         cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)

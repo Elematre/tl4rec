@@ -24,14 +24,14 @@ model:
    hidden_dims: [32]
   edge_projection: 
    use_dropout: yes
-   dropout_rate: 0.1
-   use_layer_norm: yes
-   hidden_dims: [4]
+   dropout_rate: 0.3743907806104132
+   use_layer_norm: no
+   hidden_dims: [16,16]
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 40
-      hidden_dims: [40, 40,40, 40]
+      input_dim: 32
+      hidden_dims: [32, 32, 32, 32, 32, 32, 32]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
@@ -50,26 +50,32 @@ model:
       hidden_dims: [16, 16]
     embedding_edge:
       use_dropout: yes
-      dropout_rate: 0.2 
-      use_layer_norm: yes
-      hidden_dims: [4, 4, 4]
+      dropout_rate: 0.03247182903513618
+      use_layer_norm: no
+      hidden_dims: [16, 16, 16, 16, 16, 16]
     #0.05
 
 task:
   name: TransductiveInference
-  num_negative: 8
+  num_negative: 54
   strict_negative: yes
-  adversarial_temperature: 0
+  adversarial_temperature: 1
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
   # note if one changes the k from ndcg this should also be adjusted in the code
 
 optimizer:
   class: AdamW
-  lr:  0.005
+  projection_user_lr: 1.0e-4
+  projection_item_lr: 1.0e-4
+  projection_edge_lr: 0.000248786603430893
+  backbone_conv_lr: 0.00017783663799881164
+  backbone_mlp_user_lr: 5.0e-4
+  backbone_mlp_item_lr: 5.0e-4
+  backbone_mlp_edge_lr: 0.0003360904636420548
 
 train:
   gpus: [{{ gpus }}]
-  batch_size: 8
+  batch_size: 16
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
