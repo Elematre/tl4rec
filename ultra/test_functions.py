@@ -5,6 +5,120 @@ import torch
 import random
 
 
+def test_pyG_graph(datas):
+    """
+    Checks that the dataset is in correct form. In addition to verifying matching dimensions, 
+    this function verifies that:
+      - The edge_index has no duplicates.
+      - The edge_index is undirected (i.e. for every (u,v), (v,u) exists).
+      - All provided data objects (e.g., train, valid, test) share the same edge_index.
+      - Target datas have no overlaps
+      - all sizes match
+      - all edges go from user to item
+    """
+    # Helper to detect duplicate edges.
+    def has_duplicate_edges(edge_index):
+        edge_set = set(map(tuple, edge_index.t().tolist()))
+        return len(edge_set) < edge_index.shape[1]
+
+    # Helper to check that edge_index is undirected.
+    def is_undirected(edge_index):
+        # Convert to list of (u,v) edges and build a set for fast membership testing.
+        edges = edge_index.t().tolist()
+        edge_set = {tuple(e) for e in edges}
+        for u, v in edges:
+            if (v, u) not in edge_set:
+                return False
+        return True
+
+    # Use the first dataset's edge_index as a baseline.
+    base_edge_index = datas[0].edge_index
+    assert not has_duplicate_edges(base_edge_index), "Duplicated edges detected in data[0]."
+    assert is_undirected(base_edge_index), "edge_index in data[0] is not undirected."
+
+    for idx, data in enumerate(datas):
+        # Verify dimension matches.
+        assert data.edge_index.size(1) == data.edge_attr.size(0), \
+            f"Size mismatch between edge_index and edge_attr in dataset index {idx}"
+        assert data.edge_index.size(1) == data.edge_type.size(0), \
+            f"Size mismatch between edge_index and edge_type in dataset index {idx}"
+        assert data.target_edge_index.size(1) == data.target_edge_attr.size(0), \
+            f"Size mismatch between target_edge_index and target_edge_attr in dataset index {idx}"
+        assert data.target_edge_index.size(1) == data.target_edge_type.size(0), \
+            f"Size mismatch between target_edge_index and target_edge_type in dataset index {idx}"
+        assert data.num_users == data.x_user.size(0), \
+            f"Size mismatch between num_users and x_user in dataset index {idx}"
+        assert data.num_items == data.x_item.size(0), \
+            f"Size mismatch between num_items and x_item in dataset index {idx}"
+        
+        # Validate node IDs 
+        validate_graph(data)
+
+        # Check duplicate edges and undirectedness.
+        assert not has_duplicate_edges(data.target_edge_index), \
+            f"Duplicated edges detected in target_edge_index {idx}"
+
+        # Verify that all datasets share the same edge_index.
+        assert torch.equal(data.edge_index, base_edge_index), \
+            f"edge_index in dataset index {idx} differs from that of the first dataset"
+        
+    # --- New check: ensure that target_edge_index does not overlap across datasets ---
+    target_edge_sets = []
+    for idx, data in enumerate(datas):
+        # Convert each target_edge_index (of shape [2, E]) to a set of (u, v) tuples.
+        edges = set(map(tuple, data.target_edge_index.t().tolist()))
+        target_edge_sets.append(edges)
+    
+    # Compare every pair of datasets to make sure their target edges are disjoint.
+    num_datasets = len(target_edge_sets)
+    for i in range(num_datasets):
+        for j in range(i + 1, num_datasets):
+            assert target_edge_sets[i].isdisjoint(target_edge_sets[j]), \
+                f"target_edge_index in dataset index {i} and {j} have overlapping edges."
+
+    print("Graph looks good!")
+
+
+
+
+        
+
+def debug_edge_attr_alignment(train_data, batch_with_attr):
+    """
+    Verify that edge attributes in batch_with_attr align with train_data.target_edge_attr.
+    
+    Args:
+        train_data: The data object containing target_edge_index and target_edge_attr.
+        batch_with_attr: Tensor containing edges and their corresponding attributes from the loader.
+    """
+    target_edge_index = train_data.target_edge_index.t()  # (num_edges, 2)
+    target_edge_attr = train_data.target_edge_attr  # (num_edges, attr_dim)
+    
+    target_edge = batch_with_attr[:, :3]  # (batch_size, 3) -> [u, v, r]
+    batch_attr = batch_with_attr[:, 3:]  # (batch_size, attr_dim)
+
+    for i, edge in enumerate(target_edge):
+        u, v, _ = edge.tolist()  # Extract u and v; ignore r
+        batch_attr_value = batch_attr[i]  # Corresponding attribute in batch
+        
+        # Naively search for the edge in target_edge_index
+        found_idx = -1
+        for idx, target_edge_pair in enumerate(target_edge_index):
+            if target_edge_pair[0] == u and target_edge_pair[1] == v:
+                found_idx = idx
+                break
+        
+        # If edge is found, compare the attributes
+        if found_idx != -1:
+            target_attr_value = target_edge_attr[found_idx]
+            assert torch.allclose(batch_attr_value, target_attr_value), (
+                f"Mismatch at edge {u, v}: "
+                f"batch_attr={batch_attr_value}, target_attr={target_attr_value}"
+            )
+        else:
+            print(f"Edge {u, v} not found in target_edge_index.")
+    
+    print("Debug/test completed: all attributes match.")
 
 def test_edge_feature_alignment(edge_index, df_features):
     """
@@ -61,7 +175,7 @@ def find_mismatched_ids(user_map_keys, raw_user_ids, max_output=2):
 
 
 
-def validate_graph(data, num_users, num_items):
+def validate_graph(data):
     """
     Validate the structure of the graph.
     Ensures:
@@ -74,6 +188,8 @@ def validate_graph(data, num_users, num_items):
         num_users (int): Number of users.
         num_items (int): Number of items.
     """
+    num_items = data.num_items
+    num_users = data.num_users
     num_nodes = num_users + num_items
 
     # Validate num_nodes
@@ -93,6 +209,9 @@ def validate_graph(data, num_users, num_items):
     print("Graph validation passed!")
 
 def validate_pred_mask(t_relevance, h_relevance, test_data, filtered_data, pos_h_index, pos_t_index):
+    """
+    Verify that the mask used to filter out predictions is correct in  t_pred[t_mask_pred] = float('-inf')
+    """
     num_users = test_data.num_users
     device = t_relevance.device
     edge_index = test_data.target_edge_index.to(device)
@@ -134,6 +253,9 @@ def validate_pred_mask(t_relevance, h_relevance, test_data, filtered_data, pos_h
     print("Validation of pred passed: No inconsistencies found.")
 
 def validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index):
+    """
+    used to debug relevance labels in the ndcg calculation
+    """
     num_users = test_data.num_users
     device = t_relevance.device
     edge_index = test_data.target_edge_index.to(device)
@@ -175,6 +297,7 @@ def validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_i
 
 
 def validate_mask(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index, num_users, context):
+    
     device = t_relevance.device
     if context == 3:
         edge_index = test_data.target_edge_index.to(device)

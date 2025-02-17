@@ -81,8 +81,8 @@ class Ultra(nn.Module):
             if self.log:
                 util.log_node_features(user_embedding,item_embedding, "embedding")
         else:
-            user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
-            item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+            user_embedding = torch.zeros(num_users, 1, device = batch.device)
+            item_embedding = torch.zeros(num_items, 1, device = batch.device)
         
         score = self.simple_model(data, batch, user_embedding, item_embedding)
         # score (batch_size, 1 + num negatives)

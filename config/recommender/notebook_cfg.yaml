@@ -9,7 +9,7 @@ dataset:
 
 model:
   class: Gru-Ultra
-  node_features: yes
+  node_features: no
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1
@@ -23,8 +23,8 @@ model:
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 40
-      hidden_dims: [40, 40,40, 40]
+      input_dim: 32
+      hidden_dims: [32, 32, 32, 32, 32, 32, 32]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
@@ -44,27 +44,27 @@ model:
 
 task:
   name: TransductiveInference
-  num_negative: 8
+  num_negative: 54
   strict_negative: yes
-  adversarial_temperature: 0
+  adversarial_temperature: 1
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
   # note if one changes the k from ndcg this should also be adjusted in the code
 
 optimizer:
   class: AdamW
-  lr:  0.005
+  lr:  0.00017783663799881164
 
 train:
   gpus: [{{ gpus }}]
-  batch_size: 8
+  batch_size: 16
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
-  loss: bpr # Options: Bpr, bce
+  loss: bce # Options: Bpr, bce
   target_metric: ndcg@20
   wandb: no
   gradient_clip: no
-  init_linear_weights: no
+  init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 8

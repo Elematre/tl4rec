@@ -5,6 +5,7 @@ import copy
 import time
 import logging
 import argparse
+import datetime
 
 import yaml
 import jinja2
@@ -22,10 +23,125 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def set_bpe(cfg, num_edges):
+    epochs = cfg.train["num_epoch"]
+    bs = cfg.train["batch_size"]
+    if epochs < 3:
+        bpe = (num_edges / bs) // 13
+        
+    else:
+        bpe = (num_edges / bs) // epochs 
+    return int(bpe)
+    #bpe = (train_data.edge_index.size(1) / bs) // epochs 
+    #cfg.train["batch_per_epoch"]= int(bpe)
+
+def set_eval_negs(name):
+    if name.startswith("Yelp") or name.startswith("Gowalla"):
+        print ("We will evaluate vs all negatives")
+        return -1
+    elif name.startswith("Amazon"):
+        print ("We will evaluate vs 100 negatives")
+        return 100
+    else: 
+        print ("We will evaluate vs 1000 negatives")
+        return 1000
+    
+
+def recursive_to_plain(d):
+    """
+    Recursively convert EasyDict (or dict-like) objects into plain Python dicts.
+    """
+    if isinstance(d, dict) or isinstance(d, easydict.EasyDict):
+        return {k: recursive_to_plain(v) for k, v in d.items()}
+    elif isinstance(d, list):
+        return [recursive_to_plain(item) for item in d]
+    else:
+        return d
+
+def save_cfg_of_best_params(best_params, cfg):
+    """
+    best_params: result of hyperparameter search (a dict)
+    cfg: original config (possibly an EasyDict)
+    Saves a new YAML configuration file determined by best_params.
+    """
+    best_config = copy.deepcopy(cfg)
+    best_config.optimizer["projection_edge_lr"] = best_params["projection_edge_lr"]
+    best_config.optimizer["backbone_conv_lr"] = best_params["backbone_conv_lr"]
+    best_config.optimizer["backbone_mlp_edge_lr"] = best_params["backbone_mlp_edge_lr"]
+
+    # Update edge_projection parameters:
+    best_config.model["edge_projection"]["use_dropout"] = best_params["edge_projection_use_dropout"]
+    best_config.model["edge_projection"]["dropout_rate"]   = best_params["edge_projection_dropout_rate"]
+    best_config.model["edge_projection"]["use_layer_norm"] = best_params["edge_projection_use_layer_norm"]
+    edge_emb_dim = best_params["edge_emb_dim"]
+    num_edge_proj_layers = best_params["num_edge_proj_layers"]
+    best_config.model["edge_projection"]["hidden_dims"] = [edge_emb_dim] * num_edge_proj_layers
+
+    # Update embedding_edge parameters:
+    best_config.model["backbone_model"]["embedding_edge"]["use_dropout"]    = best_params["embedding_edge_use_dropout"]
+    best_config.model["backbone_model"]["embedding_edge"]["dropout_rate"]   = best_params["embedding_edge_dropout_rate"]
+    best_config.model["backbone_model"]["embedding_edge"]["use_layer_norm"] = best_params["embedding_edge_use_layer_norm"]
+    num_edge_emb_layers = best_params["num_edge_emb_layers"]
+    best_config.model["backbone_model"]["embedding_edge"]["hidden_dims"]    = [edge_emb_dim] * num_edge_emb_layers
+
+    # Update simple_model parameters:
+    #simple_model_multiplier = best_params["simple_model_multiplier"]
+    simple_model_dim =  best_params["simple_model_dim"]
+    best_config.model["backbone_model"]["simple_model"]["input_dim"] = simple_model_dim 
+    simple_model_num_hidden = best_params["simple_model_num_hidden"]
+    best_config.model["backbone_model"]["simple_model"]["hidden_dims"] = [simple_model_dim] * simple_model_num_hidden
+
+    # Update task parameters:
+    best_config.task["num_negative"] = best_params["num_negative"]
+    best_config.task["adversarial_temperature"] = best_params["adversarial_temperature"]
+
+    # Convert the configuration to a plain dictionary recursively:
+    plain_config = recursive_to_plain(best_config)
+
+    # Define the directory and make sure it exists:
+    output_dir = "/itet-stor/trachsele/net_scratch/tl4rec/config/recommender"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    # Define the full file path:
+    file_path = os.path.join(output_dir, f"best_config-{current_time}.yaml")
+    
+    # Save the configuration to the YAML file using safe_dump:
+    with open(file_path, "w") as file:
+        yaml.safe_dump(plain_config, file, default_flow_style=False, sort_keys=False)
+
+    print("Best configuration saved to", file_path)
+
+    
+
+    
+
+
+def get_run_name(cfg):
+    num_epoch = cfg.train.num_epoch
+    conv_dim = cfg.model.backbone_model.simple_model["input_dim"]
+    if cfg.model["node_features"]:
+        node_features = "NF"
+    else:
+        node_features = ""
+    model_type = f"{node_features}/{conv_dim}"
+    
+    if num_epoch == 0:
+        run_type = "0-Shot"
+    elif num_epoch <= 4:
+        num_epoch_proj_ft = cfg.train.fine_tuning["num_epoch_proj"]
+        num_epoch_whole_ft = num_epoch - num_epoch_proj_ft
+        run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+    else:
+        run_type = f"End-to-End"
+        
+        
+    return f"{run_type}-{model_type}"
+    
 def log_node_features(user_projection, item_projection, name):             
             user_mean, user_var = user_projection.mean().item(), user_projection.var().item()
             item_mean, item_var = item_projection.mean().item(), item_projection.var().item()
-            #print ("hi im inside of log_node_features")
+            print ("hi im inside of log_node_features")
             wandb.log({
                 f"debug/user_{name}_mean": user_mean,
                 f"debug/user_{name}_variance": user_var,
