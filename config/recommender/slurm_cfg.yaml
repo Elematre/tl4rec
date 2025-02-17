@@ -31,7 +31,7 @@ model:
     simple_model:
       class: SimpleNBFNet
       input_dim: 32
-      hidden_dims: [32, 32, 32, 32, 32, 32, 32]
+      hidden_dims: [32, 32, 32, 32]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
@@ -51,8 +51,8 @@ model:
     embedding_edge:
       use_dropout: yes
       dropout_rate: 0.03247182903513618
-      use_layer_norm: no
-      hidden_dims: [16, 16, 16, 16, 16, 16]
+      use_layer_norm: yes
+      hidden_dims: [16, 16, 16]
     #0.05
 
 task:

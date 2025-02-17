@@ -248,10 +248,10 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
      # save the final model state
     if rank == 0:
         # Extract the last 6 letters of each dataset name
-        dataset_names = cfg.dataset['graphs'][0]  # Example: ['Amazon_Beauty', 'Amazon_Games']
-    
+        dataset_names = "".join(set(graph[-6:] for graph in cfg.dataset['graphs']))
+
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_name = f"{dataset_names}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
@@ -295,6 +295,7 @@ def test(cfg, models, test_data, filtered_data=None, context = 0, nr_eval_negs =
         rankings = []
         num_negatives = []
         ndcgs = []
+        tail_ndcgs = []
         for batch_with_idx in test_loader:
             batch = batch_with_idx[:,:3]
             edge_indices = batch_with_idx[:, 3].long()
@@ -329,7 +330,7 @@ def test(cfg, models, test_data, filtered_data=None, context = 0, nr_eval_negs =
                 h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
                 ndcgs += [t_ndcg, h_ndcg]
                 tail_ndcgs +=  [t_ndcg]
-            elif nr_eval_negs == -1: 
+            elif nr_eval_negs == 1000: 
                 #print ("im here against 1000")
                 # we need to build the cadidate set with all positives per user and the remaining negatives such that set has size 1000
                 batch_size = batch.size(0)

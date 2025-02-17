@@ -25,7 +25,6 @@ from ultra.models import Gru_Ultra,My_LightGCN
 separator = ">" * 30
 line = "-" * 30
 k = 20 # ndcg@k
-nr_eval_negs = -1 #  == -1 evaluation on all negatives or nr_eval_negs otherwise
 fine_tuning = False # wether we are fine-tuning
 
 def train_and_validate(cfg, model, train_data, valid_data, device, logger, filtered_data=None, batch_per_epoch=None):
@@ -231,14 +230,13 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         dataset_names = dataset_name = cfg.dataset["class"]
     
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_name = f"{dataset_names}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
         torch.save(state, checkpoint_path)
         
-@torch.no_grad()
     
    
 
@@ -280,11 +278,44 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         if filtered_data is None:
             t_mask, h_mask = tasks.strict_negative_mask(test_data, batch)
         else:
-            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch, context = 2)
-            
+            t_mask, h_mask = tasks.strict_negative_mask(filtered_data, batch)
+
+
+        pos_h_index, pos_t_index, pos_r_index = batch.t()
         if nr_eval_negs == -1:
             t_batch, h_batch = tasks.all_negative(test_data, batch)
             t_pred = model(test_data, t_batch, target_edge_attr)
+            if False:
+                # Define a tolerance for floating point differences
+                tolerance = 1e-6
+                
+                # Compute the min and max for each row
+                row_min = t_pred.min(dim=1).values
+                row_max = t_pred.max(dim=1).values
+                
+                # Check if the difference is below tolerance for each row
+                is_constant = (row_max - row_min) < tolerance
+                print(f"[DEBUG] is_constant {is_constant}")
+                # Print results
+                num_constant = is_constant.sum().item()
+                print(f"[DEBUG] {num_constant}/{t_pred.shape[0]} rows in t_pred are constant.")
+                if False:
+                    pos_pred = t_pred.gather(-1, pos_t_index.unsqueeze(-1))
+                    print(f"[DEBUG] Positive scores (pos_pred) per row:\n{pos_pred}")
+                    # Compute row-wise average of predictions for all entries where t_mask is True.
+                    row_avg_neg = []  # to store average negative score per row.
+                    for i in range(t_pred.shape[0]):
+                        # Select predictions for row i where the mask is True.
+                        neg_scores = t_pred[i][t_mask[i]]
+                        if neg_scores.numel() > 0:
+                            avg_neg = neg_scores.mean().item()
+                        else:
+                            avg_neg = float('nan')
+                        row_avg_neg.append(avg_neg)
+                        pos_val = pos_pred[i].item()
+                        print(f"[DEBUG] Row {i}: pos_pred = {pos_val:.4f}, avg_neg_score = {avg_neg:.4f}")
+                        if abs(avg_neg - pos_val) < 1e-6:
+                            print(f"[DEBUG] Row {i}: Negative scores match the positive score.")
             h_pred = model(test_data, h_batch, target_edge_attr)
             #t_pred= (bs, num_nodes)
                 # compute ndcg:
@@ -292,20 +323,54 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
             t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
             t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-            # test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
+            #test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
     
             # mask out all scores of known edges. 
             t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
             # mask out pos_t/h_index 
             t_mask_pred = t_mask_inv.logical_xor(t_relevance)
             h_mask_pred = h_mask_inv.logical_xor(h_relevance)
-            # test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
-    
-            t_pred[t_mask_pred] = float('-inf')
+            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
+            
+            # For tail predictions:
+            if False:
+                violation_mask = t_relevance.bool() & t_mask.bool()
+                if violation_mask.any():
+                    num_violations = violation_mask.sum().item()
+                    print("Mismatch found: {} entries where t_relevance == 1 but t_mask == 1.".format(num_violations))
+                t_pos_scores = t_pred[t_relevance.bool()]  # scores for positive (relevant) predictions
+                t_neg_mask = (~t_relevance.bool()) & (~t_mask_pred.bool())
+                t_neg_scores = t_pred[t_neg_mask]
+                
+                avg_t_pos = t_pos_scores.mean() if t_pos_scores.numel() > 0 else torch.tensor(float('nan'))
+                avg_t_neg = t_neg_scores.mean() if t_neg_scores.numel() > 0 else torch.tensor(float('nan'))
+                
+                print("Tail predictions -- Avg. positive score: {:.4f}, Avg. negative score: {:.4f}"
+                      .format(avg_t_pos.item(), avg_t_neg.item()))
+
+            
+            #t_pred[t_mask_pred] = float('-inf')
             h_pred[h_mask_pred] = float('-inf')
+            
+            if False:
+               # Debug: Compute per-row averages for positive (relevant) scores and negative scores (where mask is True)
+                for i in range(t_pred.shape[0]):
+                    # Average score for entries where relevance is 1
+                    pos_entries = t_pred[i][t_relevance[i].bool()]
+                    avg_pos = pos_entries.mean().item() if pos_entries.numel() > 0 else float('nan')
+                    
+                    # Average score for entries where t_mask is True (candidates for negatives)
+                    neg_entries = t_pred[i][t_mask[i].bool()]
+                    avg_neg = neg_entries.mean().item() if neg_entries.numel() > 0 else float('nan')
+                    
+                    print(f"[DEBUG] Row {i}: avg positive (rel) score: {avg_pos:.4f}, avg negative (mask) score: {avg_neg:.4f}")
             
             #compute ndcg scores 
             t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+            if False: 
+                # Compute the average NDCG over the batch
+                avg_t_ndcg = t_ndcg.mean().item()
+                print("Average NDCG: {:.4f}".format(avg_t_ndcg))
             h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
             ndcgs += [t_ndcg, h_ndcg]
             tail_ndcgs +=  [t_ndcg]
@@ -395,13 +460,32 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         
         # t_mask = (bs, num_nodes) = all valid negative tails for the given headnode in bs
         
-        pos_h_index, pos_t_index, pos_r_index = batch.t()
+        
         
         # pos_h_index = (bs)
     
 
         # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter for now
+        #t_mask_1, h_mask_1 = tasks.strict_negative_mask(filtered_data, batch)
+        if False:
+            # --- Print statistics about t_mask ---
+            print("t_mask shape:", t_mask.shape)
+            
+            # Since t_mask is a boolean tensor, count the number of True values (1's) per batch.
+            ones_per_batch = t_mask.sum(dim=1)  
+            # Count zeros per batch: total columns minus ones.
+            zeros_per_batch = t_mask.shape[1] - ones_per_batch
+            
+            print("Count of 1's per batch in t_mask:", ones_per_batch)
+            print("Count of 0's per batch in t_mask:", zeros_per_batch)
+            print("Percentage of 1's per batch:", (ones_per_batch.float() / t_mask.shape[1]).tolist())
+
         t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
+
+        if False: 
+            avg_t_ranking = t_ranking.float().mean().item()
+            print("Average tail ranking: {:.4f}".format(avg_t_ranking))
+            
         h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
         #t_ranking = tasks.compute_ranking(t_pred, pos_t_index)
         #h_ranking = tasks.compute_ranking(h_pred, pos_h_index)
@@ -545,14 +629,13 @@ if __name__ == "__main__":
 
     
     
-    
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
-    epochs = cfg.train["num_epoch"]
-    bs = cfg.train["batch_size"]
-    bpe = (train_data.edge_index.size(1) / bs) // epochs 
-    cfg.train["batch_per_epoch"]= int(bpe)
-    #cfg.train["batch_per_epoch"]= 5
-    print (f"bpe {bpe}")
+    num_edges = train_data.edge_index.size(1)
+    bpe = util.set_bpe(cfg,num_edges)
+    print(f"bpe = {bpe}")
+    cfg.train["batch_per_epoch"]= bpe
+    #print ("This needs to be changed")
+    #print (f"bpe {bpe}")
     # make datasets smaller if we dont use node_features
     if not cfg.model.get("node_features", True):
         train_data.x_user = None
@@ -595,6 +678,8 @@ if __name__ == "__main__":
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         model.ultra.load_state_dict(state["model"])
+        #print ("this needs to be changed")
+        #model.load_state_dict(state["model"])
     
     fine_tuning = cfg.train.num_epoch < 4
     #model = pyg.compile(model, dynamic=True)
@@ -668,6 +753,7 @@ if __name__ == "__main__":
         if util.get_rank() == 0:
             result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
+        #pass
         result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
     
     # Log metrics only on rank 0
@@ -698,6 +784,9 @@ if __name__ == "__main__":
         if util.get_rank() == 0:
             result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
+        print (f"test_filtered_data.edge_index.size(){test_filtered_data.edge_index.size()}")
+        print (f"test_data.num_users{test_data.num_users}") 
+        print (f"test_data.num_items{test_data.num_items}") 
         result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
 
     # Log metrics only on rank 0

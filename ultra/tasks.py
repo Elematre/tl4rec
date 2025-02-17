@@ -213,6 +213,7 @@ def all_negative(data, batch):
     all_index = torch.arange(data.num_nodes, device=batch.device)
     t_index, h_index = torch.meshgrid(pos_t_index, all_index, indexing="ij")
     h_batch = torch.stack([h_index, t_index, r_index], dim=-1)
+    
     # t_batch has all corrupted tail nodes important not only including items but also users. but this doesnt really matter since we
     # mask the users for ranking calculation anyway by strict_negative_mask
     return t_batch, h_batch
@@ -296,13 +297,68 @@ def compute_ranking(pred, target, mask=None):
     #pos_pred = (bs,1)
     if mask is not None:
         # filtered ranking
-        ranking = torch.sum((pos_pred < pred) & mask, dim=-1) + 1
+        ranking = torch.sum((pos_pred <= pred) & mask, dim=-1) + 1
     else:
         # unfiltered ranking
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
     # ranking = (bs)
     return ranking
-    
+
+def compute_ranking_debug(pred, target, mask=None):
+    # Gather the positive predictions for each instance
+    pos_pred = pred.gather(-1, target.unsqueeze(-1))
+    print(f"[DEBUG] pos_pred: {pos_pred}")
+
+    if mask is not None:
+         # --- Check that for each sample, the mask at the target index is 0 ---
+        target_mask_values = mask.gather(-1, target.unsqueeze(-1))
+        if (target_mask_values != 0).any():
+            print("[DEBUG] Warning: Found non-zero mask values at target indices:")
+            print(target_mask_values)
+        else:
+            print("[DEBUG] All target indices in mask are 0 as expected.")
+
+        # Create a tensor that indicates where pos_pred < pred AND the mask is True.
+        condition_tensor = (pos_pred < pred) & mask
+        #print(f"[DEBUG] Condition tensor ((pos_pred < pred) & mask):\n{condition_tensor}")
+
+        # Count the number of True values per batch instance.
+        count_true = torch.sum(condition_tensor, dim=-1)
+        #print(f"[DEBUG] Count of True values in condition tensor per row: {count_true}")
+        
+        # Count the number of True values per batch instance.
+        count_true_mask = torch.sum(mask, dim=-1)
+        print(f"[DEBUG] Count of True values in condition tensor per row: {count_true_mask}")
+        
+        # --- Calculate the row-wise average of prediction values where mask is True ---
+        row_avg_pred = []
+        for i in range(pred.shape[0]):
+            if mask[i].sum() > 0:
+                avg_val = pred[i][mask[i]].mean().item()
+            else:
+                avg_val = float('nan')
+            row_avg_pred.append(avg_val)
+        row_avg_pred = torch.tensor(row_avg_pred, device=pred.device)
+        print(f"[DEBUG] Row-wise average prediction value for entries where mask is True:\n{row_avg_pred}")
+        
+
+        # Optionally, get the maximum prediction score where the mask is True for each row.
+        masked_pred = pred.clone()
+        masked_pred[~mask] = float('-inf')
+        max_masked_pred, _ = masked_pred.max(dim=-1)
+        print(f"[DEBUG] Maximum pred values where mask is True per row: {max_masked_pred}")
+
+        ranking = count_true + 1
+    else:
+        # Unfiltered ranking: count all candidates where pos_pred <= pred.
+        condition_tensor = pos_pred <= pred
+        print(f"[DEBUG] Condition tensor (pos_pred <= pred):\n{condition_tensor}")
+
+        ranking = torch.sum(condition_tensor, dim=-1) + 1
+
+    print(f"[DEBUG] Final computed ranking: {ranking}")
+    return ranking
+
 # adjusted method. Assumes pred is of size (bs, 1 + num_negs) used for evaluation on the amazon datasets (against 100 negative)
 def compute_ranking_against_num_negs(pred, target=None, mask=None):
     """
@@ -391,7 +447,10 @@ def compute_ndcg_at_k(pred, target, k):
 
     # Step 4: Compute NDCG@k
     ndcg = dcg / idcg
+    if torch.isnan(ndcg).any():
+        print("Warning: Found NaN values in NDCG; replacing with 0.0")
     ndcg[torch.isnan(ndcg)] = 0.0  # Handle cases where idcg is 0 (no relevant items)
+   
     return ndcg
 
 def build_relation_graph(graph):

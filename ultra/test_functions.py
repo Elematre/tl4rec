@@ -12,6 +12,9 @@ def test_pyG_graph(datas):
       - The edge_index has no duplicates.
       - The edge_index is undirected (i.e. for every (u,v), (v,u) exists).
       - All provided data objects (e.g., train, valid, test) share the same edge_index.
+      - Target datas have no overlaps
+      - all sizes match
+      - all edges go from user to item
     """
     # Helper to detect duplicate edges.
     def has_duplicate_edges(edge_index):
@@ -58,8 +61,24 @@ def test_pyG_graph(datas):
         # Verify that all datasets share the same edge_index.
         assert torch.equal(data.edge_index, base_edge_index), \
             f"edge_index in dataset index {idx} differs from that of the first dataset"
+        
+    # --- New check: ensure that target_edge_index does not overlap across datasets ---
+    target_edge_sets = []
+    for idx, data in enumerate(datas):
+        # Convert each target_edge_index (of shape [2, E]) to a set of (u, v) tuples.
+        edges = set(map(tuple, data.target_edge_index.t().tolist()))
+        target_edge_sets.append(edges)
+    
+    # Compare every pair of datasets to make sure their target edges are disjoint.
+    num_datasets = len(target_edge_sets)
+    for i in range(num_datasets):
+        for j in range(i + 1, num_datasets):
+            assert target_edge_sets[i].isdisjoint(target_edge_sets[j]), \
+                f"target_edge_index in dataset index {i} and {j} have overlapping edges."
 
     print("Graph looks good!")
+
+
 
 
         
@@ -190,6 +209,9 @@ def validate_graph(data):
     print("Graph validation passed!")
 
 def validate_pred_mask(t_relevance, h_relevance, test_data, filtered_data, pos_h_index, pos_t_index):
+    """
+    Verify that the mask used to filter out predictions is correct in  t_pred[t_mask_pred] = float('-inf')
+    """
     num_users = test_data.num_users
     device = t_relevance.device
     edge_index = test_data.target_edge_index.to(device)
@@ -231,6 +253,9 @@ def validate_pred_mask(t_relevance, h_relevance, test_data, filtered_data, pos_h
     print("Validation of pred passed: No inconsistencies found.")
 
 def validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index):
+    """
+    used to debug relevance labels in the ndcg calculation
+    """
     num_users = test_data.num_users
     device = t_relevance.device
     edge_index = test_data.target_edge_index.to(device)
@@ -272,6 +297,7 @@ def validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_i
 
 
 def validate_mask(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index, num_users, context):
+    
     device = t_relevance.device
     if context == 3:
         edge_index = test_data.target_edge_index.to(device)

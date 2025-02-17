@@ -23,6 +23,18 @@ from ultra import models, datasets
 
 logger = logging.getLogger(__file__)
 
+def set_bpe(cfg, num_edges):
+    epochs = cfg.train["num_epoch"]
+    bs = cfg.train["batch_size"]
+    if epochs < 3:
+        bpe = (num_edges / bs) // 13
+        
+    else:
+        bpe = (num_edges / bs) // epochs 
+    return int(bpe)
+    #bpe = (train_data.edge_index.size(1) / bs) // epochs 
+    #cfg.train["batch_per_epoch"]= int(bpe)
+
 def set_eval_negs(name):
     if name.startswith("Yelp") or name.startswith("Gowalla"):
         print ("We will evaluate vs all negatives")

@@ -2,7 +2,7 @@ output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 
 dataset:
   class: JointDataset
-  graphs: [Amazon_Beauty]
+  graphs: [Amazon_Beauty,Epinions, Ml1m]
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 model:
@@ -12,7 +12,7 @@ model:
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1
-   use_layer_norm: yes
+   use_layer_norm: no
    hidden_dims: [32]
   item_projection: 
    use_dropout: yes
@@ -20,15 +20,15 @@ model:
    use_layer_norm: yes
    hidden_dims: [32]
   edge_projection: 
-   use_dropout: no
-   dropout_rate: 0.1
-   use_layer_norm: yes
-   hidden_dims: [4]
+   use_dropout: yes
+   dropout_rate: 0.3743907806104132
+   use_layer_norm: no
+   hidden_dims: [16,16]
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 40
-      hidden_dims: [40, 40,40, 40]
+      input_dim: 32
+      hidden_dims: [32, 32, 32, 32, 32, 32, 32]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
@@ -47,13 +47,13 @@ model:
       hidden_dims: [16, 16]
     embedding_edge:
       use_dropout: yes
-      dropout_rate: 0.05
-      use_layer_norm: yes
-      hidden_dims: [4, 4, 4]
+      dropout_rate: 0.03247182903513618
+      use_layer_norm: no
+      hidden_dims: [16, 16, 16, 16, 16, 16]
 
 task:
   name: MultiGraphPretraining
-  num_negative: 32
+  num_negative: 54
   strict_negative: yes
   adversarial_temperature: 1
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
@@ -62,18 +62,19 @@ optimizer:
   class: AdamW
   projection_user_lr: 1.0e-4
   projection_item_lr: 1.0e-4
-  projection_edge_lr: 1.0e-4
-  backbone_conv_lr: 5.0e-4
+  projection_edge_lr: 0.000248786603430893
+  backbone_conv_lr: 0.00017783663799881164
   backbone_mlp_user_lr: 5.0e-4
   backbone_mlp_item_lr: 5.0e-4
-  backbone_mlp_edge_lr: 5.0e-4
+  backbone_mlp_edge_lr: 0.0003360904636420548
+
 
 train:
   gpus: [{{ gpus }}]
   batch_size: 16
-  num_epoch: 2
+  num_epoch: 4
   log_interval: 800
-  batch_per_epoch: 100
+  batch_per_epoch: 20000
   fast_test: 500
-  wandb: no
+  wandb: yes
   #logger: wandb
