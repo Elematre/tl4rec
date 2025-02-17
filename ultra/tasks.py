@@ -297,7 +297,7 @@ def compute_ranking(pred, target, mask=None):
     #pos_pred = (bs,1)
     if mask is not None:
         # filtered ranking
-        ranking = torch.sum((pos_pred <= pred) & mask, dim=-1) + 1
+        ranking = torch.sum((pos_pred < pred) & mask, dim=-1) + 1
     else:
         # unfiltered ranking
         ranking = torch.sum(pos_pred <= pred, dim=-1) + 1
