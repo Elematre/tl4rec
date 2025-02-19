@@ -108,11 +108,11 @@ class Ultra(nn.Module):
             conv_edge_projection_var = conv_edge_projection.var().item()
     
             # Log these metrics under the key "debug/edge_attr_metric"
-            wandb.log({
-                "debug/conv_edge_projection_mean": conv_edge_projection_mean,
-                "debug/conv_edge_projection_std": conv_edge_projection_std,
-                "debug/conv_edge_projection_var": conv_edge_projection_var
-            })
+            #wandb.log({
+             #   "debug/conv_edge_projection_mean": conv_edge_projection_mean,
+              #  "debug/conv_edge_projection_std": conv_edge_projection_std,
+               # "debug/conv_edge_projection_var": conv_edge_projection_var
+            #})
             
             conv_edge_embedding = self.edge_mlp(conv_edge_projection) 
             # Compute statistics for conv_edge_embedding
@@ -121,11 +121,11 @@ class Ultra(nn.Module):
             conv_edge_embedding_var = conv_edge_embedding.var().item()
     
             # Log these metrics under the key "debug/edge_attr_metric"
-            wandb.log({
-                "debug/conv_edge_embedding_mean": conv_edge_embedding_mean,
-                "debug/conv_edge_embedding_std": conv_edge_embedding_std,
-                "debug/conv_edge_embedding_var": conv_edge_embedding_var
-            })
+            #wandb.log({
+             #   "debug/conv_edge_embedding_mean": conv_edge_embedding_mean,
+              #  "debug/conv_edge_embedding_std": conv_edge_embedding_std,
+               # "debug/conv_edge_embedding_var": conv_edge_embedding_var
+            #})
             target_edge_embedding = self.edge_mlp(target_edge_projections) 
         
         score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding)

@@ -5,8 +5,8 @@
 #SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:geforce_rtx_3090:1 
-#SBATCH --nodelist=tikgpu09
+#SBATCH --gres=gpu:titan_rtx:1 
+#CommentSBATCH --nodelist=tikgpu09
 #CommentSBATCH --account=tik-internal
 
 

@@ -308,6 +308,37 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
         if nr_eval_negs == -1:
             t_batch, h_batch = tasks.all_negative(test_data, batch)
             t_pred = model(test_data, t_batch, target_edge_attr)
+            if False:
+                # Define a tolerance for floating point differences
+                tolerance = 1e-6
+                
+                # Compute the min and max for each row
+                row_min = t_pred.min(dim=1).values
+                row_max = t_pred.max(dim=1).values
+                
+                # Check if the difference is below tolerance for each row
+                is_constant = (row_max - row_min) < tolerance
+                print(f"[DEBUG] is_constant {is_constant}")
+                # Print results
+                num_constant = is_constant.sum().item()
+                print(f"[DEBUG] {num_constant}/{t_pred.shape[0]} rows in t_pred are constant.")
+                if False:
+                    pos_pred = t_pred.gather(-1, pos_t_index.unsqueeze(-1))
+                    print(f"[DEBUG] Positive scores (pos_pred) per row:\n{pos_pred}")
+                    # Compute row-wise average of predictions for all entries where t_mask is True.
+                    row_avg_neg = []  # to store average negative score per row.
+                    for i in range(t_pred.shape[0]):
+                        # Select predictions for row i where the mask is True.
+                        neg_scores = t_pred[i][t_mask[i]]
+                        if neg_scores.numel() > 0:
+                            avg_neg = neg_scores.mean().item()
+                        else:
+                            avg_neg = float('nan')
+                        row_avg_neg.append(avg_neg)
+                        pos_val = pos_pred[i].item()
+                        print(f"[DEBUG] Row {i}: pos_pred = {pos_val:.4f}, avg_neg_score = {avg_neg:.4f}")
+                        if abs(avg_neg - pos_val) < 1e-6:
+                            print(f"[DEBUG] Row {i}: Negative scores match the positive score.")
             h_pred = model(test_data, h_batch, target_edge_attr)
             #t_pred= (bs, num_nodes)
                 # compute ndcg:
@@ -325,11 +356,44 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
             
             # For tail predictions:
-            t_pred[t_mask_pred] = float('-inf')
+            if False:
+                violation_mask = t_relevance.bool() & t_mask.bool()
+                if violation_mask.any():
+                    num_violations = violation_mask.sum().item()
+                    print("Mismatch found: {} entries where t_relevance == 1 but t_mask == 1.".format(num_violations))
+                t_pos_scores = t_pred[t_relevance.bool()]  # scores for positive (relevant) predictions
+                t_neg_mask = (~t_relevance.bool()) & (~t_mask_pred.bool())
+                t_neg_scores = t_pred[t_neg_mask]
+                
+                avg_t_pos = t_pos_scores.mean() if t_pos_scores.numel() > 0 else torch.tensor(float('nan'))
+                avg_t_neg = t_neg_scores.mean() if t_neg_scores.numel() > 0 else torch.tensor(float('nan'))
+                
+                print("Tail predictions -- Avg. positive score: {:.4f}, Avg. negative score: {:.4f}"
+                      .format(avg_t_pos.item(), avg_t_neg.item()))
+
+            
+            #t_pred[t_mask_pred] = float('-inf')
             h_pred[h_mask_pred] = float('-inf')
+            
+            if False:
+               # Debug: Compute per-row averages for positive (relevant) scores and negative scores (where mask is True)
+                for i in range(t_pred.shape[0]):
+                    # Average score for entries where relevance is 1
+                    pos_entries = t_pred[i][t_relevance[i].bool()]
+                    avg_pos = pos_entries.mean().item() if pos_entries.numel() > 0 else float('nan')
+                    
+                    # Average score for entries where t_mask is True (candidates for negatives)
+                    neg_entries = t_pred[i][t_mask[i].bool()]
+                    avg_neg = neg_entries.mean().item() if neg_entries.numel() > 0 else float('nan')
+                    
+                    print(f"[DEBUG] Row {i}: avg positive (rel) score: {avg_pos:.4f}, avg negative (mask) score: {avg_neg:.4f}")
             
             #compute ndcg scores 
             t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+            if False: 
+                # Compute the average NDCG over the batch
+                avg_t_ndcg = t_ndcg.mean().item()
+                print("Average NDCG: {:.4f}".format(avg_t_ndcg))
             h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
             ndcgs += [t_ndcg, h_ndcg]
             tail_ndcgs +=  [t_ndcg]
@@ -426,8 +490,25 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
 
         # the mask has now become irrelevant since the scores are already masked out but this doesnt really matter for now
         #t_mask_1, h_mask_1 = tasks.strict_negative_mask(filtered_data, batch)
+        if False:
+            # --- Print statistics about t_mask ---
+            print("t_mask shape:", t_mask.shape)
+            
+            # Since t_mask is a boolean tensor, count the number of True values (1's) per batch.
+            ones_per_batch = t_mask.sum(dim=1)  
+            # Count zeros per batch: total columns minus ones.
+            zeros_per_batch = t_mask.shape[1] - ones_per_batch
+            
+            print("Count of 1's per batch in t_mask:", ones_per_batch)
+            print("Count of 0's per batch in t_mask:", zeros_per_batch)
+            print("Percentage of 1's per batch:", (ones_per_batch.float() / t_mask.shape[1]).tolist())
 
         t_ranking = tasks.compute_ranking(t_pred, pos_t_index, t_mask)
+
+        if False: 
+            avg_t_ranking = t_ranking.float().mean().item()
+            print("Average tail ranking: {:.4f}".format(avg_t_ranking))
+            
         h_ranking = tasks.compute_ranking(h_pred, pos_h_index, h_mask)
         #t_ranking = tasks.compute_ranking(t_pred, pos_t_index)
         #h_ranking = tasks.compute_ranking(h_pred, pos_h_index)
