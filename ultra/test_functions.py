@@ -11,7 +11,7 @@ def test_pyG_graph(datas):
     this function verifies that:
       - The edge_index has no duplicates.
       - The edge_index is undirected (i.e. for every (u,v), (v,u) exists).
-      - All provided data objects (e.g., train, valid, test) share the same edge_index.
+      - All provided data objects (e.g., train, valid, test) share the same edge_index and edge_attr.
       - Target datas have no overlaps
       - all sizes match
       - all edges go from user to item
@@ -33,6 +33,7 @@ def test_pyG_graph(datas):
 
     # Use the first dataset's edge_index as a baseline.
     base_edge_index = datas[0].edge_index
+    base_edge_attr=  datas[0].edge_attr
     assert not has_duplicate_edges(base_edge_index), "Duplicated edges detected in data[0]."
     assert is_undirected(base_edge_index), "edge_index in data[0] is not undirected."
 
@@ -61,6 +62,10 @@ def test_pyG_graph(datas):
         # Verify that all datasets share the same edge_index.
         assert torch.equal(data.edge_index, base_edge_index), \
             f"edge_index in dataset index {idx} differs from that of the first dataset"
+        
+         # Verify that all datasets share the same edge_attr.
+        assert torch.equal(data.edge_attr, base_edge_attr), \
+            f"edge_edge_attr in dataset index {idx} differs from that of the first dataset"
         
     # --- New check: ensure that target_edge_index does not overlap across datasets ---
     target_edge_sets = []

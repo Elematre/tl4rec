@@ -50,7 +50,9 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
 
     batch_per_epoch = batch_per_epoch or len(train_loader)
     edge_features = cfg.model.get("edge_features", False)
+    
     param_groups = []
+    param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
     # If edge features are used, add the backbone MLP for edges
     if edge_features:
         param_groups.append({
@@ -150,6 +152,27 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 
 
                 loss.backward()
+                # --- Log gradient norms for edge-related parameters ---
+                if cfg.train["wandb"]:
+                    edge_mlp_grad_norm_sum = 0.0
+                    edge_mlp_count = 0
+                    edge_proj_grad_norm_sum = 0.0
+                    edge_proj_count = 0
+                    
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            if "edge_mlp" in name:
+                                edge_mlp_grad_norm_sum += param.grad.norm().item()
+                                edge_mlp_count += 1
+                            elif "edge_projection" in name:
+                                edge_proj_grad_norm_sum += param.grad.norm().item()
+                                edge_proj_count += 1
+                    
+                    if edge_mlp_count > 0:
+                        wandb.log({"debug/grad_norm/edge_mlp": edge_mlp_grad_norm_sum / edge_mlp_count})
+                    if edge_proj_count > 0:
+                        wandb.log({"debug/grad_norm/edge_projection": edge_proj_grad_norm_sum / edge_proj_count})
+                # ------------------------------------------------------
                 # Apply gradient clipping
                 if cfg.train["gradient_clip"]:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -230,7 +253,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         dataset_names = dataset_name = cfg.dataset["class"]
     
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/dump"
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_name = f"{dataset_names}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
@@ -626,7 +649,7 @@ if __name__ == "__main__":
     task_name = cfg.task["name"]
     dataset = util.build_dataset(cfg)
     device = util.get_device(cfg)
-
+    #test_functions.test_pyG_graph(dataset)
     
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
@@ -634,6 +657,7 @@ if __name__ == "__main__":
     bpe = util.set_bpe(cfg,num_edges)
     print(f"bpe = {bpe}")
     cfg.train["batch_per_epoch"]= bpe
+    #cfg.train["batch_per_epoch"]= 10
     #print ("This needs to be changed")
     #print (f"bpe {bpe}")
     # make datasets smaller if we dont use node_features
@@ -651,6 +675,18 @@ if __name__ == "__main__":
         
     # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
+    if True: 
+        edge_attr_mean = train_data.edge_attr.mean().item()
+        edge_attr_std = train_data.edge_attr.std().item()
+        edge_attr_var = train_data.edge_attr.var().item()
+    
+        # Log these metrics under the key "debug/edge_attr_metric"
+        if wandb_on:
+            wandb.log({
+                "debug/edge_attr_mean": edge_attr_mean,
+                "debug/edge_attr_std": edge_attr_std,
+                "debug/edge_attr_var": edge_attr_var
+            })
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
@@ -662,7 +698,6 @@ if __name__ == "__main__":
 
     # adding the input_dims for the projection mlp's
     cfg.model.edge_projection["input_dim"] = train_data.edge_attr.size(1)
-    
     model = Gru_Ultra(
         cfg = cfg.model)
 

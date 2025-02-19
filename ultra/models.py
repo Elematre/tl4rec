@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-
+import wandb
 from . import tasks, layers
 from ultra.base_nbfnet import BaseNBFNet
 from torch_geometric.nn.models import LightGCN
@@ -101,8 +101,31 @@ class Ultra(nn.Module):
         else:
             user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
             item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
+            
         if self.edge_features:
+            conv_edge_projection_mean = conv_edge_projection.mean().item()
+            conv_edge_projection_std = conv_edge_projection.std().item()
+            conv_edge_projection_var = conv_edge_projection.var().item()
+    
+            # Log these metrics under the key "debug/edge_attr_metric"
+            wandb.log({
+                "debug/conv_edge_projection_mean": conv_edge_projection_mean,
+                "debug/conv_edge_projection_std": conv_edge_projection_std,
+                "debug/conv_edge_projection_var": conv_edge_projection_var
+            })
+            
             conv_edge_embedding = self.edge_mlp(conv_edge_projection) 
+            # Compute statistics for conv_edge_embedding
+            conv_edge_embedding_mean = conv_edge_embedding.mean().item()
+            conv_edge_embedding_std = conv_edge_embedding.std().item()
+            conv_edge_embedding_var = conv_edge_embedding.var().item()
+    
+            # Log these metrics under the key "debug/edge_attr_metric"
+            wandb.log({
+                "debug/conv_edge_embedding_mean": conv_edge_embedding_mean,
+                "debug/conv_edge_embedding_std": conv_edge_embedding_std,
+                "debug/conv_edge_embedding_var": conv_edge_embedding_var
+            })
             target_edge_embedding = self.edge_mlp(target_edge_projections) 
         
         score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding)
@@ -142,8 +165,7 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, conv_edge_embedding, target_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
-        
+    def bellmanford(self, data, batch, conv_edge_embedding, target_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
         
         # initialize queries with target_edge_embedding repeated to match the boundary_dim
         user_embedding.to(device=h_index.device)
@@ -155,7 +177,7 @@ class SimpleNBFNet(BaseNBFNet):
         # Repeat and concatenate target_edge_embedding to match input_dim
         repeat_factor = input_dim // edge_embedding_dim
         query = target_edge_embedding.repeat(1, repeat_factor)  # (batch_size, input_dim)
-        
+        #query = torch.ones(batch_size, input_dim, device=h_index.device)  
         #print(f"edge_embedding_dim {edge_embedding_dim}")
         #print(f"query.shape {query.shape}")
         #raise ValueError("until here only")
@@ -244,7 +266,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, conv_edge_embedding, target_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, batch, conv_edge_embedding, target_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states
