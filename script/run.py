@@ -16,6 +16,7 @@ from torch.utils import data as torch_data
 from torch_geometric.data import Data
 from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
@@ -189,7 +190,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         if rank == 0:
             logger.warning("Save checkpoint to model_epoch_%d.pth" % epoch)
             state = {
-                "model": model.state_dict(),
+                "model": model.ultra.state_dict(),
                 "optimizer": optimizer.state_dict()
             }
             torch.save(state, "model_epoch_%d.pth" % epoch)
@@ -211,7 +212,12 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 wandb.log({f"training/performance/{metric}": score})
 
         target_metric = cfg.train["target_metric"]
-        result = result_dict[target_metric]
+        # adjust the name for various k's a bit ugly
+        if target_metric == "ndcg":
+            target_metric_name = f"{target_metric}@{k}"
+            result=result_dict[target_metric_name]
+        else:
+            result = result_dict[target_metric]
         #scheduler.step()
         #scheduler.step(result) 
         if result > best_result:
@@ -221,16 +227,16 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
     state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
-    model.load_state_dict(state["model"])
+    model.ultra.load_state_dict(state["model"])
     util.synchronize()
     if rank == 0 and cfg.train["save_ckpt"]:
         # Extract the last 6 letters of each dataset name
-        dataset_names = dataset_name = cfg.dataset["class"]
+        dataset_name = cfg.dataset["class"]
     
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/dump"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_name = f"{dataset_names}.pth"
+        checkpoint_name = f"{dataset_name}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
         torch.save(state, checkpoint_path)
@@ -488,7 +494,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                 score = _ranking.float().mean()
             elif _metric_name == "mrr":
                 score = (1 / _ranking.float()).mean()
-            elif _metric_name == "ndcg@20":
+            elif _metric_name == "ndcg":
+                 metric = f"{_metric_name}@{k}"
                  score = _ndcgs.mean().item()
             elif _metric_name.startswith("hits@"):
                 values = _metric_name[5:].split("_")
@@ -532,7 +539,10 @@ if __name__ == "__main__":
     dataset_name = cfg.dataset["class"]
     is_amazon = dataset_name.startswith("Amazon")
     nr_eval_negs = util.set_eval_negs(dataset_name)
+    if not nr_eval_negs == -1:
+        k = 10
     
+
         
     run_name = util.get_run_name(cfg)
     wandb_on = cfg.train["wandb"]
@@ -660,8 +670,6 @@ if __name__ == "__main__":
             logger.warning("Amazon dataset detected. Performing 5 evaluations and averaging results.")
         
         test_results = []
-        # set k for ndcg@10 TODO: should be adjusted
-        k = 10
         for _ in range(5):
             result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs = nr_eval_negs)
             test_results.append(result)
@@ -671,14 +679,14 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_valid = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
         #pass
-        result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
+        result_valid = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
     
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_valid.items():
             wandb.summary[f"validation/performance/{metric}"] = score
 
     
@@ -702,17 +710,23 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_test = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        print (f"test_filtered_data.edge_index.size(){test_filtered_data.edge_index.size()}")
-        print (f"test_data.num_users{test_data.num_users}") 
-        print (f"test_data.num_items{test_data.num_items}") 
-        result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
+        result_test = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
 
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_test.items():
             wandb.summary[f"test/performance/{metric}"] = score
+        
+    if util.get_rank() == 0 and cfg.train["save_results_db"]:
+        # Define a custom path for the SQLite database
+        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results.db" 
+        # Ensure the directory exists before writing
+        Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
+        run_data = util.build_run_data(cfg, dataset_name, result_valid, result_test)
+        util.log_results_to_db(run_data, db_path=DB_FILE)
+    
  
     
    

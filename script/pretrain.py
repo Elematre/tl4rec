@@ -226,34 +226,15 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
         model.ultra.load_state_dict(state["model"])
     util.synchronize()
     
-    if False:
-        # save the final model state
-        if rank == 0:
-            # Extract the last 6 letters of each dataset name
-            dataset_names = cfg.dataset['graphs']  # Example: ['Amazon_Beauty', 'Amazon_Games']
-            dataset_prefix = ''.join([name[-6:] for name in dataset_names])  # 'Beauty_Games'
-        
-            # Get the current timestamp in a readable format
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-        
-            # Construct the checkpoint filename
-            checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            checkpoint_name = f"{dataset_prefix}_{current_time}.pth"
-            checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
-        
-            logger.warning(f"Save final_ckpt to {checkpoint_path}")
-            torch.save(state, checkpoint_path)
         
      # save the final model state
     if rank == 0:
-        # Extract the last 6 letters of each dataset name
-        dataset_names = "".join(set(graph[-6:] for graph in cfg.dataset['graphs']))
-
+    
+        graph_name = util.get_pretrain_graph_name(cfg.dataset['graphs'])
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_name = f"{dataset_names}.pth"
+        checkpoint_name = f"{graph_name}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
     
         logger.warning(f"Save final_ckpt to {checkpoint_path}")

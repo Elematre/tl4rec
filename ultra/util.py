@@ -6,6 +6,8 @@ import time
 import logging
 import argparse
 import datetime
+import sqlite3
+import pandas as pd
 
 import yaml
 import jinja2
@@ -22,6 +24,63 @@ from ultra import models, datasets
 
 
 logger = logging.getLogger(__file__)
+
+def get_pretrain_graph_name(graphs):
+    """
+    Generates an appropriate pretrain graph name based on the given dataset subset.
+    - Amazon datasets truncate the 'Amazon_' prefix.
+    - All dataset names are shortened to their first 4 letters.
+    - The names are concatenated to form a single identifier.
+    
+    :param graphs: List of dataset names (subset of DATASETS)
+    :return: Pretrain graph name string
+    """
+    processed_names = []
+    
+    for graph in graphs:
+        if graph.startswith("Amazon_"):
+            graph = graph[7:]  # Remove 'Amazon_' prefix
+        processed_names.append(graph[:4])  # Take the first 4 letters
+    
+    return "_".join(processed_names)
+
+    
+
+def log_results_to_db(run_data, db_path):
+    """Log results into SQLite database at a given path."""
+    conn = sqlite3.connect(db_path)
+    df = pd.DataFrame([run_data])
+    df.to_sql("experiments", conn, if_exists="append", index=False)
+    conn.close()
+
+def build_run_data(cfg, dataset_name, result_valid, result_test):
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        ckpt_name = os.path.basename(cfg.checkpoint)
+    else:
+        ckpt_name = "-"
+    run_data = {
+    "ckpt": ckpt_name,
+    "dataset": dataset_name,
+    "epochs": cfg.train["num_epoch"],
+    "bpe" : cfg.train["batch_per_epoch"],
+    "FT": cfg.train.fine_tuning["num_epoch_proj"]}
+    # Append validation results with 'valid_' prefix
+
+    # Function to safely convert tensors to float
+    def convert_value(value):
+        if isinstance(value, torch.Tensor):
+            return value.item()  # Convert single-value tensor to float
+        return value  # Otherwise, return as is
+    for metric, value in result_valid.items():
+        run_data[f"valid_{metric}"] = convert_value(value)
+    
+    # Append test results with 'test_' prefix
+    for metric, value in result_test.items():
+        run_data[f"test_{metric}"] = convert_value(value)
+        
+    #Todo append result_valid and result_test with an approriate prefix
+    return run_data
+    
 
 def set_bpe(cfg, num_edges):
     epochs = cfg.train["num_epoch"]

@@ -10,18 +10,7 @@ dataset:
  
 model:
   class: Gru-Ultra
-  node_features: no
   edge_features: yes
-  user_projection:
-   use_dropout: yes
-   dropout_rate: 0.1
-   use_layer_norm: no
-   hidden_dims: [32]
-  item_projection: 
-   use_dropout: yes
-   dropout_rate: 0.1
-   use_layer_norm: yes
-   hidden_dims: [32]
   edge_projection: 
    use_dropout: yes
    dropout_rate: 0.3743907806104132
@@ -38,16 +27,6 @@ model:
       layer_norm: yes
       project_conv_emb: yes
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
-    embedding_user:
-      use_dropout: no
-      dropout_rate: 0.1
-      use_layer_norm: no
-      hidden_dims: [16, 16]
-    embedding_item:
-      use_dropout: no
-      dropout_rate: 0.1
-      use_layer_norm: no
-      hidden_dims: [16, 16]
     embedding_edge:
       use_dropout: yes
       dropout_rate: 0.03247182903513618
@@ -55,23 +34,18 @@ model:
       hidden_dims: [16, 16, 16, 16, 16, 16]
     #0.05
 
-
 task:
   name: TransductiveInference
   num_negative: 54
   strict_negative: yes
   adversarial_temperature: 1
-  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
+  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg]
   # note if one changes the k from ndcg this should also be adjusted in the code
 
 optimizer:
   class: AdamW
-  projection_user_lr: 1.0e-4
-  projection_item_lr: 1.0e-4
   projection_edge_lr: 0.000248786603430893
   backbone_conv_lr: 0.00017783663799881164
-  backbone_mlp_user_lr: 5.0e-4
-  backbone_mlp_item_lr: 5.0e-4
   backbone_mlp_edge_lr: 0.0003360904636420548
 
 train:
@@ -81,14 +55,18 @@ train:
   log_interval: 100
   batch_per_epoch: {{ bpe }}
   loss: bce # Options: Bpr, bce
-  target_metric: ndcg@20
+  target_metric: ndcg
   wandb: yes
   gradient_clip: no
   init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
-  test_batch_size: 8
+  test_batch_size: 4
+  save_ckpt: yes
+  save_results_db: yes
   fine_tuning:
     num_epoch_proj: 0
+   
+      
 
 checkpoint: {{ ckpt }}

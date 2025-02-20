@@ -2,7 +2,7 @@ output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 
 dataset:
   class: JointDataset
-  graphs: [Amazon_Beauty,Amazon_Games]
+  graphs: [Amazon_Men,Epinions, Gowalla, BookX]
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 model:
@@ -72,9 +72,9 @@ optimizer:
 train:
   gpus: [{{ gpus }}]
   batch_size: 8
-  num_epoch: 2
+  num_epoch: 4
   log_interval: 800
-  batch_per_epoch: 40000
+  batch_per_epoch: 20000
   fast_test: 500
   wandb: yes
   #logger: wandb

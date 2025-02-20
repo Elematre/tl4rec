@@ -5,8 +5,9 @@
 #SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:titan_rtx:1 
-#CommentSBATCH --nodelist=tikgpu09
+#CommentSBATCH --gres=gpu:titan_rtx:1 
+#SBATCH --gres=gpu:geforce_rtx_3090:1 
+#SBATCH --nodelist=tikgpu09
 #CommentSBATCH --account=tik-internal
 
 
@@ -48,12 +49,15 @@ echo "Conda activated"
 conda info --envs
 
 cd ${DIRECTORY}
-
+#DATASETS = [
+   # "Epinions", "LastFM", "BookX", "Ml1m", "Gowalla",
+   # "Amazon_Beauty", "Amazon_Fashion", "Amazon_Men", "Amazon_Games", "Yelp18"
+#]
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 1 --bpe 1000 --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/inionsBeautyMl1m.pth
+#python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Games --epochs 8 --bpe 1000 --gpus "[0]" --ckpt null
 #python script/hyperparam_search.py -c config/recommender/pretrain_all.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 8 --bpe 2000 --gpus "[0]" --ckpt null
-#python script/pretrain.py -c config/recommender/pretrain_notebook.yaml --gpus [0]
+#python script/pretrain.py -c config/recommender/pretrain_all.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset Amazon_Fashion --epochs 1 --bpe 66909 --gpus "[0]" --ckpt null --seed 17
 
 # Send more noteworthy information to the output log
