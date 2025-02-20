@@ -15,13 +15,7 @@ class Gru_Ultra(nn.Module):
         super(Gru_Ultra, self).__init__()
         
         # Dataset-specific projection layerscfg.backbone_model
-        self.node_features = cfg["node_features"]
         self.edge_features = cfg["edge_features"]
-        if self.node_features:
-            self.user_projection =  MLP(cfg.user_projection)
-            self.item_projection =  MLP(cfg.item_projection)
-        else:
-            self.hidden_dim = cfg.user_projection["hidden_dims"][0]
         if self.edge_features:
             self.edge_projection =  MLP(cfg.edge_projection)
         else:
@@ -36,23 +30,13 @@ class Gru_Ultra(nn.Module):
     def forward(self, data, batch, target_edge_attr):
         num_users = data.num_users
         num_items = data.num_items
-        
-        if self.node_features:
-            user_projection= self.user_projection(data.x_user)
-            item_projection= self.item_projection(data.x_item)
-            if self.log:
-                util.log_node_features(user_projection,item_projection, "projection")
-
-        else:
-            user_projection = torch.zeros(num_users, self.hidden_dim, device = batch.device)
-            item_projection = torch.zeros(num_items, self.hidden_dim, device = batch.device)
             
         if self.edge_features:
             conv_edge_projection = self.edge_projection(data.edge_attr)
             target_edge_projections= self.edge_projection(target_edge_attr)
         else:
             raise NotImplementedError
-        score = self.ultra(data, batch, user_projection, item_projection, conv_edge_projection, target_edge_projections)
+        score = self.ultra(data, batch, conv_edge_projection, target_edge_projections)
         # what does score look like? score (batch_size, 1 + num negatives)
         
         return score
@@ -62,15 +46,7 @@ class Ultra(nn.Module):
     def __init__(self, cfg, log = False):
         # kept that because super Ultra sounds cool
         super(Ultra, self).__init__()
-        # MLP's for obtaining item/user emb.
-        self.node_features = cfg["node_features"]
         self.edge_features = cfg["edge_features"]
-        if self.node_features:
-            self.item_mlp = MLP(cfg.backbone_model.embedding_item)
-            self.user_mlp = MLP(cfg.backbone_model.embedding_user)
-        else:   
-            self.hidden_dim = cfg.backbone_model.embedding_item["hidden_dims"][0]
-        
         if self.edge_features:
             self.edge_mlp = MLP(cfg.backbone_model.embedding_edge)
         else:   
@@ -86,22 +62,12 @@ class Ultra(nn.Module):
         self.simple_model = globals()[simple_model_cfg.pop('class')](edge_emb_dim, **simple_model_cfg)
 
         
-    def forward(self, data, batch, user_projection, item_projection, conv_edge_projection, target_edge_projections):
+    def forward(self, data, batch, conv_edge_projection, target_edge_projections):
         # calculate embeddings
-        
         num_users = data.num_users
         num_items = data.num_items
 
         edge_attr= data.edge_attr
-        if self.node_features:    
-            user_embedding = self.user_mlp(user_projection)  # shape: (num_users, 16)
-            item_embedding = self.item_mlp(item_projection)
-            if self.log:
-                util.log_node_features(user_embedding,item_embedding, "embedding")
-        else:
-            user_embedding = torch.zeros(num_users, self.hidden_dim, device = batch.device)
-            item_embedding = torch.zeros(num_items, self.hidden_dim, device = batch.device)
-            
         if self.edge_features:
             conv_edge_projection_mean = conv_edge_projection.mean().item()
             conv_edge_projection_std = conv_edge_projection.std().item()
@@ -128,7 +94,7 @@ class Ultra(nn.Module):
             #})
             target_edge_embedding = self.edge_mlp(target_edge_projections) 
         
-        score = self.simple_model(data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding)
+        score = self.simple_model(data, batch, conv_edge_embedding, target_edge_embedding)
         # score (batch_size, 1 + num negatives)
         
         return score
@@ -165,12 +131,9 @@ class SimpleNBFNet(BaseNBFNet):
         self.mlp = nn.Sequential(*mlp)
 
     
-    def bellmanford(self, data, batch, conv_edge_embedding, target_edge_embedding, h_index,user_embedding, item_embedding, h_embeddings, separate_grad=False):
+    def bellmanford(self, data, batch, conv_edge_embedding, target_edge_embedding, h_index, separate_grad=False):
         
         # initialize queries with target_edge_embedding repeated to match the boundary_dim
-        user_embedding.to(device=h_index.device)
-        item_embedding.to(device=h_index.device)
-        h_embeddings.to(device=h_index.device)
         batch_size = len(h_index)
         input_dim = self.dims[0]
         edge_embedding_dim = target_edge_embedding.size(1)
@@ -221,11 +184,9 @@ class SimpleNBFNet(BaseNBFNet):
             "edge_weights": edge_weights,
         }
 
-    def forward(self, data, batch, user_embedding, item_embedding, conv_edge_embedding, target_edge_embedding):
+    def forward(self, data, batch, conv_edge_embedding, target_edge_embedding):
         h_index, t_index, r_index = batch.unbind(-1)
         batch_size = batch.shape[0]
-        num_users = user_embedding.shape[0]
-        embedding_dim = user_embedding.shape[-1]
 
 
 
@@ -240,25 +201,13 @@ class SimpleNBFNet(BaseNBFNet):
             #print (f"after removal conv_edge_embedding.shape: {conv_edge_embedding.shape}")
             #raise NotImplementedError
         
-        # gather the head/tail_node embeddings such that h_embeddings.shape = (bs, 1 + num_neg, emb_dim)
-        # note orignally we only have user item edges but due to corruption we have may have user-user, item-item edges
-        # we dont care about those since we are only interested in the incorrupted embeddings
-        # some corrupted h_index may be > num_user - 1
-        index_temp = h_index.clamp(max= num_users - 1).unsqueeze(-1).expand(-1,-1, embedding_dim)
-        h_embeddings = user_embedding.unsqueeze(0).expand(batch_size,-1,-1).gather(1,index_temp)
-        
-        # some corrupted nodes may be smaller than num_users
-        index_temp = (t_index - num_users).clamp(min=0).unsqueeze(-1).expand(-1,-1, embedding_dim)
-        t_embeddings = item_embedding.unsqueeze(0).expand(batch_size,-1,-1).gather(1,index_temp)
 
         
         
         shape = h_index.shape
         # turn all triples in a batch into a tail prediction mode
-        h_index, t_index, r_index, h_embeddings   = self.negative_sample_to_tail(h_index, t_index, r_index,
-                                                                                               num_direct_rel=data.num_relations // 2,
-                                                                                               h_embeddings=h_embeddings,
-                                                                                               t_embeddings=t_embeddings)
+        h_index, t_index, r_index   = self.negative_sample_to_tail(h_index, t_index, r_index,
+                                                                                               num_direct_rel=data.num_relations // 2)
         
         # I really dont understand how we pass this check if we check that every batch row has identical head node ?!!?!
         # Answer: Every batch row has either corrupted head node or tail node not both in the negative samples
@@ -266,7 +215,7 @@ class SimpleNBFNet(BaseNBFNet):
         assert (r_index[:, [0]] == r_index).all()
 
         # message passing and updated node representations
-        output = self.bellmanford(data, batch, conv_edge_embedding, target_edge_embedding, h_index[:, 0], user_embedding, item_embedding, h_embeddings)  # (num_nodes, batch_size, feature_dim）
+        output = self.bellmanford(data, batch, conv_edge_embedding, target_edge_embedding, h_index[:, 0])  # (num_nodes, batch_size, feature_dim）
         feature = output["node_feature"]
         index = t_index.unsqueeze(-1).expand(-1, -1, feature.shape[-1])  #unsequeeze adds dimensions on top leve x^2 to x^3 expand changes how many rows
         # extract representations of tail entities from the updated node states

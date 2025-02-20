@@ -10,18 +10,7 @@ dataset:
  
 model:
   class: Gru-Ultra
-  node_features: no
   edge_features: yes
-  user_projection:
-   use_dropout: yes
-   dropout_rate: 0.1
-   use_layer_norm: no
-   hidden_dims: [32]
-  item_projection: 
-   use_dropout: yes
-   dropout_rate: 0.1
-   use_layer_norm: yes
-   hidden_dims: [32]
   edge_projection: 
    use_dropout: yes
    dropout_rate: 0.3743907806104132
@@ -38,16 +27,6 @@ model:
       layer_norm: yes
       project_conv_emb: yes
       # CONSTRAINT: entity_model_inputdim = node_embedding_output_dim +  relation_embedding_output_dim
-    embedding_user:
-      use_dropout: no
-      dropout_rate: 0.1
-      use_layer_norm: no
-      hidden_dims: [16, 16]
-    embedding_item:
-      use_dropout: no
-      dropout_rate: 0.1
-      use_layer_norm: no
-      hidden_dims: [16, 16]
     embedding_edge:
       use_dropout: yes
       dropout_rate: 0.03247182903513618
@@ -65,12 +44,8 @@ task:
 
 optimizer:
   class: AdamW
-  projection_user_lr: 1.0e-4
-  projection_item_lr: 1.0e-4
   projection_edge_lr: 0.000248786603430893
   backbone_conv_lr: 0.00017783663799881164
-  backbone_mlp_user_lr: 5.0e-4
-  backbone_mlp_item_lr: 5.0e-4
   backbone_mlp_edge_lr: 0.0003360904636420548
 
 train:
@@ -87,6 +62,7 @@ train:
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 4
+  save_ckpt: no
   fine_tuning:
     num_epoch_proj: 0
    

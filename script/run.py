@@ -148,32 +148,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                     loss = (loss * neg_weight).sum(dim=-1) / neg_weight.sum(dim=-1)
                     loss = loss.mean()
                     
-                    
-                
 
                 loss.backward()
-                # --- Log gradient norms for edge-related parameters ---
-                if cfg.train["wandb"]:
-                    edge_mlp_grad_norm_sum = 0.0
-                    edge_mlp_count = 0
-                    edge_proj_grad_norm_sum = 0.0
-                    edge_proj_count = 0
-                    
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            if "edge_mlp" in name:
-                                edge_mlp_grad_norm_sum += param.grad.norm().item()
-                                edge_mlp_count += 1
-                            elif "edge_projection" in name:
-                                edge_proj_grad_norm_sum += param.grad.norm().item()
-                                edge_proj_count += 1
-                    
-                    if edge_mlp_count > 0:
-                        wandb.log({"debug/grad_norm/edge_mlp": edge_mlp_grad_norm_sum / edge_mlp_count})
-                    if edge_proj_count > 0:
-                        wandb.log({"debug/grad_norm/edge_projection": edge_proj_grad_norm_sum / edge_proj_count})
-                # ------------------------------------------------------
-                # Apply gradient clipping
                 if cfg.train["gradient_clip"]:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
@@ -247,8 +223,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
     model.load_state_dict(state["model"])
     util.synchronize()
-    
-    if rank == 0:
+    if rank == 0 and cfg.train["save_ckpt"]:
         # Extract the last 6 letters of each dataset name
         dataset_names = dataset_name = cfg.dataset["class"]
     
@@ -561,6 +536,7 @@ if __name__ == "__main__":
         
     run_name = util.get_run_name(cfg)
     wandb_on = cfg.train["wandb"]
+    cfg["run_name"] = f"{dataset_name}-{run_name}"
     if wandb_on:
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name= f"{dataset_name}-{run_name}", config=cfg)
@@ -572,6 +548,17 @@ if __name__ == "__main__":
     
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
+    
+    # make datasets smaller since we dont use edge_features
+    print ("discarded node_features")
+    train_data.x_user = None
+    train_data.x_item = None
+    valid_data.x_user = None
+    valid_data.x_item = None
+    test_data.x_user = None
+    test_data.x_item = None
+    
+    # set bpe
     num_edges = train_data.edge_index.size(1)
     bpe = util.set_bpe(cfg,num_edges)
     print(f"bpe = {bpe}")
@@ -579,33 +566,10 @@ if __name__ == "__main__":
     #cfg.train["batch_per_epoch"]= 10
     #print ("This needs to be changed")
     #print (f"bpe {bpe}")
-    # make datasets smaller if we dont use node_features
-    if not cfg.model.get("node_features", True):
-        train_data.x_user = None
-        train_data.x_item = None
-        valid_data.x_user = None
-        valid_data.x_item = None
-        test_data.x_user = None
-        test_data.x_item = None
-        print ("discarded node_features")
-    else:
-        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
-        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+  
         
     # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
-    if True: 
-        edge_attr_mean = train_data.edge_attr.mean().item()
-        edge_attr_std = train_data.edge_attr.std().item()
-        edge_attr_var = train_data.edge_attr.var().item()
-    
-        # Log these metrics under the key "debug/edge_attr_metric"
-        if wandb_on:
-            wandb.log({
-                "debug/edge_attr_mean": edge_attr_mean,
-                "debug/edge_attr_std": edge_attr_std,
-                "debug/edge_attr_var": edge_attr_var
-            })
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
@@ -629,11 +593,7 @@ if __name__ == "__main__":
        # embedding_item_cfg = cfg.model.embedding_item
     #)
 
-    if "checkpoint" in cfg and cfg.checkpoint is not None:
-        state = torch.load(cfg.checkpoint, map_location="cpu")
-        model.ultra.load_state_dict(state["model"])
-        #print ("this needs to be changed")
-        #model.load_state_dict(state["model"])
+    
     
     fine_tuning = cfg.train.num_epoch < 4
     #model = pyg.compile(model, dynamic=True)
@@ -649,6 +609,12 @@ if __name__ == "__main__":
     
         # Apply the weight initialization
         model.apply(weights_init)
+        
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        state = torch.load(cfg.checkpoint, map_location="cpu")
+        model.ultra.load_state_dict(state["model"])
+        #print ("this needs to be changed")
+        #model.load_state_dict(state["model"])
     
     if task_name == "InductiveInference":
         # filtering for inductive datasets

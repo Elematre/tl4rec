@@ -20,7 +20,7 @@ import optuna
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
 from ultra.models import Gru_Ultra, Ultra
-
+from ultra.datasets import Yelp18
 
 separator = ">" * 30
 line = "-" * 30
@@ -44,7 +44,7 @@ def multigraph_collator(batch, train_graphs):
 
 
 # here we assume that train_data and valid_data are tuples of datasets
-def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None):
+def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data=None, batch_per_epoch=None, context = 0):
     if cfg.train.num_epoch == 0:
         return
 
@@ -118,7 +118,6 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
 
     batch_id = 0
     
-
 
     for i in range(0, cfg.train.num_epoch, step):
 
@@ -196,22 +195,23 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
         if rank == 0:
             logger.warning(separator)
             logger.warning("Evaluate on valid")
+
         result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
         #result = 0
-        # Decide wether we prune
-        trial.report(result, step=epoch)
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
+        if context == 0:
+            # Decide wether we prune
+            trial.report(result, step=epoch)
+                
         if result > best_result:
             best_result = result
             best_epoch = epoch
             
         if wandb_on and util.get_rank() == 0:
-            wandb.log({
-                "epoch": epoch,
-                "val_metric": result,
-                "trial": trial.number,
-            })
+            if context == 0:
+                wandb.log({f"{context}/training/epoch": epoch})
+                
+            wandb.log({f"{context}/training/val_metric": result})
+            wandb.log({f"{context}/training/trial": trial.number})
 
     if rank == 0:
         logger.warning("Load checkpoint from model_epoch_%d.pth" % best_epoch)
@@ -220,7 +220,7 @@ def train_and_validate(cfg, trial, models, train_data, valid_data, filtered_data
     for model in models:  
         model.ultra.load_state_dict(state["model"])
     util.synchronize()
-    return best_result
+    return best_result,state
     
 
 
@@ -433,7 +433,21 @@ if __name__ == "__main__":
     device = util.get_device(cfg)
     
     train_data, valid_data, test_data = dataset._data[0], dataset._data[1], dataset._data[2]
-
+    
+    tf_dataset = Yelp18(root = "/itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data")
+    
+    tf_train_data_single, tf_valid_data_single, tf_test_data_single = tf_dataset[0], tf_dataset[1], tf_dataset[2]
+    tf_train_data_single.x_user = None
+    tf_train_data_single.x_item = None
+    tf_valid_data_single.x_user = None
+    tf_valid_data_single.x_item = None
+    tf_test_data_single.x_user = None
+    tf_test_data_single.x_item = None
+    
+    tf_train_data = [tf_train_data_single]
+    tf_valid_data =[tf_valid_data_single]
+    tf_test_data =[ tf_test_data_single]
+    
     # check if we are evaluating on amazon
     dataset_name = cfg.dataset['graphs'][0]  # Example: ['Amazon_Beauty', 'Amazon_Games']
     is_amazon = dataset_name.startswith("Amazon")
@@ -444,7 +458,6 @@ if __name__ == "__main__":
         
     # make datasets smaller if we dont use node_features
     if not cfg.model.get("node_features", True):
-        print("discard node_features")
         for graph in train_data:
             graph.x_user = None
             graph.x_item = None
@@ -464,13 +477,26 @@ if __name__ == "__main__":
             mask = torch.randperm(graph.target_edge_index.shape[1])[:num_val_edges]
             graph.target_edge_index = graph.target_edge_index[:, mask]
             graph.target_edge_type = graph.target_edge_type[mask]
-        
         short_valid = [sv.to(device) for sv in short_valid]
+        
+     # ----- Apply "fast_test" truncation to tfvalid set -----
+    if "fast_test" in cfg.train:
+        num_val_edges = cfg.train.fast_test
+        tf_short_valid = [copy.deepcopy(vd) for vd in tf_valid_data]
+        for graph in tf_short_valid:
+            mask = torch.randperm(graph.target_edge_index.shape[1])[:num_val_edges]
+            graph.target_edge_index = graph.target_edge_index[:, mask]
+            graph.target_edge_type = graph.target_edge_type[mask]
+        tf_short_valid = [sv.to(device) for sv in tf_short_valid]
+
 
     train_data = [td.to(device) for td in train_data]
     valid_data = [vd.to(device) for vd in valid_data]
     test_data = [tst.to(device) for tst in test_data]
-    
+
+    tf_train_data = [td.to(device) for td in tf_train_data]
+    tf_valid_data = [vd.to(device) for vd in tf_valid_data]
+    tf_test_data = [tst.to(device) for tst in tf_test_data]
      # for transductive setting, use the whole graph for filtered ranking
     filtered_data = [
         Data(
@@ -482,8 +508,21 @@ if __name__ == "__main__":
             
         for trg, valg, testg in zip(train_data, valid_data, test_data)
     ]
+    
+    tf_filtered_data = [
+        Data(
+            edge_index=torch.cat([trg.target_edge_index, valg.target_edge_index, testg.target_edge_index], dim=1), 
+            edge_type=torch.cat([trg.target_edge_type, valg.target_edge_type, testg.target_edge_type,]),
+            num_users = trg.num_users,
+            num_items = trg.num_items,
+            num_nodes=trg.num_nodes).to(device)
+            
+        for trg, valg, testg in zip(tf_train_data, tf_valid_data, tf_test_data)
+    ]
 
-
+    #discrad test data
+    test_data = None
+    tf_test_data= None
     
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     run_name = f"hyperparam_search-{current_time}"
@@ -498,14 +537,20 @@ if __name__ == "__main__":
             proj_edge_lr = trial.suggest_float("projection_edge_lr", 1e-5, 1e-3, log = True)
             bb_conv_lr   = trial.suggest_float("backbone_conv_lr", 1e-5, 1e-3, log = True)
             bb_mlp_edge_lr = trial.suggest_float("backbone_mlp_edge_lr", 1e-5, 1e-3, log = True)
-        
+
+            simple_model_dim = trial.suggest_categorical("simple_model_dim", [32,64])
+            simple_model_hidden_dims = []
+            simple_model_num_hidden = trial.suggest_int("simple_model_num_hidden", 2, 8)
+            for i in range(simple_model_num_hidden):
+                simple_model_hidden_dims.append(simple_model_dim)
+                
             # --- Sample Edge Projection Hyperparameters ---
             edge_proj_use_dropout    = trial.suggest_categorical("edge_projection_use_dropout", [False, True])
             edge_proj_dropout_rate   = trial.suggest_float("edge_projection_dropout_rate", 0.0, 0.5)
             edge_proj_use_layer_norm = trial.suggest_categorical("edge_projection_use_layer_norm", [False, True])
             
             num_edge_proj_layers = trial.suggest_int("num_edge_proj_layers", 1, 5)
-            edge_emb_dim = trial.suggest_categorical("edge_emb_dim", [2, 4, 8, 16])
+            edge_emb_dim = trial.suggest_categorical("edge_emb_dim", [2, 4, 8, 16, 32])
             edge_projection_hidden_dims  = []
             for i in range(num_edge_proj_layers):
                 edge_projection_hidden_dims.append(edge_emb_dim)
@@ -522,20 +567,17 @@ if __name__ == "__main__":
                 embedding_edge_hidden_dims.append(edge_emb_dim)
         
             
-            simple_model_dim = trial.suggest_categorical("simple_model_dim", [32,64])
-            simple_model_hidden_dims = []
-            simple_model_num_hidden = trial.suggest_int("simple_model_num_hidden", 2, 7)
-            for i in range(simple_model_num_hidden):
-                simple_model_hidden_dims.append(simple_model_dim)
+            
         
             # --- Sample Task Hyperparameters ---
             # Ensure bs * num_negative <= 128. Assuming cfg.train["batch_size"] is already set.
-            max_num_negative = 1024 // cfg.train["batch_size"]
+            max_num_negative = 512 // cfg.train["batch_size"]
             num_negative = trial.suggest_int("num_negative", 1, max_num_negative)
             adversarial_temperature = trial.suggest_categorical("adversarial_temperature", [0.0, 0.5, 1.0])
         
             # --- Update the configuration ---
             cfg_trial = copy.deepcopy(cfg)
+            
             
             # Optimizer parameters:
             cfg_trial.optimizer["projection_edge_lr"] = proj_edge_lr
@@ -561,7 +603,7 @@ if __name__ == "__main__":
             # Update task parameters:
             cfg_trial.task["num_negative"] = num_negative
             cfg_trial.task["adversarial_temperature"] = adversarial_temperature
-        
+            tf_cfg = copy.deepcopy(cfg_trial)
         
             # --- Build the models ---
             # Here we assume that train_data, valid_data, test_data, short_valid, and filtered_data 
@@ -586,35 +628,50 @@ if __name__ == "__main__":
         
             # --- Train and Validate ---
             # Use the pre-built short_valid and filtered_data for consistency.
-            val_metric = train_and_validate(
+            _, state = train_and_validate(
                 cfg_trial,trial, models, train_data,
                 valid_data if "fast_test" not in cfg_trial.train else short_valid,
                 filtered_data=filtered_data,
-                batch_per_epoch=cfg_trial.train["batch_per_epoch"]
+                batch_per_epoch=cfg_trial.train["batch_per_epoch"], context = 0
             )
-            
+            tf_cfg.train["num_epoch"] =  1
+            tf_cfg.model.edge_projection["input_dim"] = tf_train_data[0].edge_attr.size(1)
+            tf_model = Gru_Ultra(
+                cfg = tf_cfg.model)
+            tf_model = tf_model.to(device)
+            tf_model.apply(weights_init)
+            tf_model.ultra.load_state_dict(state["model"])
+            print ("eval on tf")
+            val_metric,_ = train_and_validate(
+                tf_cfg,trial, [tf_model], tf_train_data,
+                tf_short_valid,
+                filtered_data= tf_filtered_data,
+                batch_per_epoch= 2000, context = 1
+            )
+                    
             return val_metric
         except RuntimeError as e:
             if "out of memory" in str(e):
                 print(f"Trial {trial.number} encountered OOM. Pruning trial...")
                 torch.cuda.empty_cache()
                 raise optuna.exceptions.TrialPruned()  # Marks it as pruned
-        else:
-            raise e  
+            else:
+                raise e  
         
-    storage_url = "sqlite:////itet-stor/trachsele/net_scratch/tl4rec/optuna_hyperparam_tuning.db"
+    storage_url = "sqlite:////itet-stor/trachsele/net_scratch/tl4rec/optuna_hyperparam_tuning_v2.db"
 
-    #study = optuna.create_study(
-     #   direction="maximize", 
-      #  pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)  
-    #)
+    if False:
+        study = optuna.create_study(
+            direction="maximize", 
+            pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)  
+        )
 
+    
     study = optuna.create_study(
         direction="maximize",
         storage=storage_url,  # Store trials in an SQLite file
-        study_name="my_hyperparam_study",
+        study_name="my_hyperparam_study_v2",
         load_if_exists=True,  # Resume trials if the file exists
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=1)
     )
     print("Existing studies:", optuna.get_all_study_names(storage=storage_url))
         
