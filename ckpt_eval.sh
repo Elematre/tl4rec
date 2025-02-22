@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:geforce_rtx_3090:1                # Allocate 1 GPU per job
 #SBATCH --nodelist=tikgpu09                          # Specific node reservation
-#SBATCH --array=0-9                                 # Two evaluations per ckpt (if 5 ckpts, 0–9)
+#SBATCH --array=0-23                                # Two evaluations per ckpt (if 12 ckpts, 0–23)
 
 # User-specific variables
 ETH_USERNAME=trachsele
@@ -18,12 +18,21 @@ CONDA_ENVIRONMENT=ba_bugfix
 CKPT_DIR=${DIRECTORY}/ckpts/pretrain
 
 # Define an array of checkpoint file names (without path)
-CKPTS=("LastFM.pth" \
-             "Ml1m.pth" \
-             "BookX.pth" \
-             "Gowalla.pth" \
-             "Yelp18.pth")
-            
+CKPTS=("Amazon_Beauty.pth" \
+           "Amazon_Games.pth" \
+           "Beauty_Games_tuned.pth" \
+           "Men_Epin_Gowa_Book.pth" \
+           "Amazon_Fashion.pth" \
+           "Amazon_Men.pth" \
+           "Epinions.pth" \
+           "Ml1m.pth" \
+           "Gowalla.pth" \
+           "BookX.pth" \
+           "LastFM.pth" \
+           "inionsBeautyMl1m.pth" \
+           "Yelp18.pth")
+
+             
 
 # Prepend the full path for each checkpoint file
 for i in "${!CKPTS[@]}"; do
@@ -55,7 +64,7 @@ else
     MODE_NAME="fine-tuned"
 fi
 
-DATASET="Amazon_Beauty"  # Fixed dataset
+DATASET="Amazon_Games"  # Fixed dataset
 
 # Create jobs directory if it doesn't exist
 mkdir -p ${DIRECTORY}/jobs

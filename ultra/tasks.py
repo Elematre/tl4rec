@@ -5,6 +5,156 @@ import torch
 import random
 
 
+
+def build_candidate_set_debug(
+    test_data, 
+    filtered_data, 
+    batch, 
+    cand_size, 
+    num_users, 
+    debug=False
+):
+    """
+    Build candidate sets for tail and head prediction for evaluation.
+    
+    For each positive triplet in the batch (of shape (bs, 3), each row is [h, t, r]):
+      - Compute the test positives from test_data (using context=3) and use filtered_data (which
+        contains all edges: train, valid, test) to determine the valid negatives.
+      - For tail prediction, for the given (h, r) pair:
+            • pos_t: all candidate tails that are positives in the test set.
+            • valid_neg_t: all items that do NOT appear for (h, r) in filtered_data.
+            • Then the candidate set is: all pos_t ∪ a random sample from (valid_neg_t minus pos_t)
+              so that the total size equals cand_size.
+      - Similarly for head prediction.
+      - If the available negatives are fewer than required, we “pad” by repeating (tiling) the negatives.
+      - Finally, for tail prediction, we form candidate triplets (h, candidate, r) and for head prediction,
+        (candidate, t, r).
+    
+    Returns:
+       t_batch: Tensor of shape (bs, cand_size, 3) for tail prediction.
+       h_batch: Tensor of shape (bs, cand_size, 3) for head prediction.
+    """
+    bs = batch.size(0)
+    print (f"batch {batch}")
+    # --- Step 1. Compute Masks ---
+    # Use test_data (context=3) to get the test positives.
+    t_mask_test, h_mask_test = strict_negative_mask(test_data, batch, context=3)
+    t_test_pos, h_test_pos = invert_mask(t_mask_test, h_mask_test, num_users)
+    
+    # Use filtered_data (context=1) to compute negatives from the full graph.
+    t_valid_neg, h_valid_neg = strict_negative_mask(filtered_data, batch, context=1)
+    # t_valid_neg is True for nodes that are *not* connected in filtered_data.
+    
+    t_candidate_list = []
+    h_candidate_list = []
+    
+    # --- Step 2. Build candidate sets per batch sample ---
+    for i in range(bs):
+        # --- Tail Prediction: For (h, r), predict the tail candidate.
+        # Get the test positives: these are items that appear as tails in the test set for (h, r)
+        pos_t = torch.where(t_test_pos[i])[0]  # indices where test-positive mask is True
+        print (f"pos_t.shape {pos_t.shape}")
+        # Valid negatives: items that are not connected in the full graph
+        valid_neg_t = torch.where(t_valid_neg[i])[0]
+    
+        if pos_t.numel() >= cand_size:
+            candidate_t = pos_t[:cand_size]
+        else:
+            required = cand_size - pos_t.numel()
+            if valid_neg_t.numel() > 0:
+                if valid_neg_t.numel() >= required:
+                    perm = torch.randperm(valid_neg_t.numel(), device=batch.device)
+                    sampled_neg_t = valid_neg_t[perm[:required]]
+                else:
+                    # Not enough negatives: tile them until we have at least 'required' items
+                    reps = (required + valid_neg_t.numel() - 1) // valid_neg_t.numel()
+                    tiled = valid_neg_t.repeat(reps)
+                    perm = torch.randperm(tiled.numel(), device=batch.device)
+                    sampled_neg_t = tiled[perm[:required]]
+            else:
+                # If there are no negatives available, repeat the positives.
+                reps = (required + pos_t.numel() - 1) // pos_t.numel() if pos_t.numel() > 0 else 1
+                sampled_neg_t = pos_t.repeat(reps)[:required]
+            candidate_t = torch.cat([pos_t, sampled_neg_t])
+        
+        # Build the tail candidate triplets: (h, candidate, r)
+        h_val = batch[i, 0].expand(cand_size)
+        r_val = batch[i, 2].expand(cand_size)
+        t_triplets = torch.stack([h_val, candidate_t, r_val], dim=1)
+        t_candidate_list.append(t_triplets)
+        
+        # --- Head Prediction: For (t, r), predict the head candidate.
+        pos_h = torch.where(h_test_pos[i])[0]
+        valid_neg_h = torch.where(h_valid_neg[i] & (~h_test_pos[i]))[0]
+        if pos_h.numel() >= cand_size:
+            candidate_h = pos_h[:cand_size]
+        else:
+            required = cand_size - pos_h.numel()
+            if valid_neg_h.numel() > 0:
+                if valid_neg_h.numel() >= required:
+                    perm = torch.randperm(valid_neg_h.numel(), device=batch.device)
+                    sampled_neg_h = valid_neg_h[perm[:required]]
+                else:
+                    reps = (required + valid_neg_h.numel() - 1) // valid_neg_h.numel()
+                    tiled = valid_neg_h.repeat(reps)
+                    perm = torch.randperm(tiled.numel(), device=batch.device)
+                    sampled_neg_h = tiled[perm[:required]]
+            else:
+                reps = (required + pos_h.numel() - 1) // pos_h.numel() if pos_h.numel() > 0 else 1
+                sampled_neg_h = pos_h.repeat(reps)[:required]
+            candidate_h = torch.cat([pos_h, sampled_neg_h])
+        
+        # Build the head candidate triplets: (candidate, t, r)
+        t_val = batch[i, 1].expand(cand_size)
+        r_val = batch[i, 2].expand(cand_size)
+        h_triplets = torch.stack([candidate_h, t_val, r_val], dim=1)
+        h_candidate_list.append(h_triplets)
+    
+    # --- Step 3. Stack candidate triplets into final tensors ---
+    t_batch = torch.stack(t_candidate_list, dim=0)  # (bs, cand_size, 3)
+    h_batch = torch.stack(h_candidate_list, dim=0)  # (bs, cand_size, 3)
+    
+    # --- Optional: Debug checks ---
+    if True:
+        # Build sets of edges for brute-force membership checks
+        # NOTE: We assume test_data and filtered_data each has:
+        #   edge_index of shape (2, E) and edge_type of shape (E,)
+        
+        test_edges = set()
+        for i_edge in range(test_data.target_edge_index.size(1)):
+            h_ = test_data.target_edge_index[0, i_edge].item()
+            t_ = test_data.target_edge_index[1, i_edge].item()
+            r_ = test_data.target_edge_type[i_edge].item()
+            test_edges.add((h_, t_, r_))
+        
+        filtered_edges = set()
+        for i_edge in range(filtered_data.edge_index.size(1)):
+            h_ = filtered_data.edge_index[0, i_edge].item()
+            t_ = filtered_data.edge_index[1, i_edge].item()
+            r_ = filtered_data.edge_type[i_edge].item()
+            filtered_edges.add((h_, t_, r_))
+        
+        # Check each batch instance
+        for i in range(bs):
+            # The sets of positive IDs we used for tail and head
+            pos_t_ids = set(torch.where(t_test_pos[i])[0].tolist())
+            pos_h_ids = set(torch.where(h_test_pos[i])[0].tolist())
+            
+            # --- Tail batch debug ---
+            for j in range(cand_size):
+                h_, t_, r_ = t_batch[i, j].tolist()
+                if t_ in pos_t_ids:
+                    # Then (h_, t_, r_) must appear in test_edges
+                    if (h_, t_, r_) not in test_edges:
+                        print(f"[DEBUG ERROR] (Tail) Supposed POS not found in test_edges: (h={h_}, t={t_}, r={r_})")
+                else:
+                    # Then (h_, t_, r_) must NOT appear in filtered_edges
+                    if (h_, t_, r_) in filtered_edges:
+                        print(f"[DEBUG ERROR] (Tail) Supposed NEG found in filtered_edges: (h={h_}, t={t_}, r={r_})")
+            
+    
+    return t_batch, h_batch
+
 def build_candidate_set(test_data, filtered_data, batch, cand_size, num_users):
     """
     Build candidate sets for tail and head prediction for evaluation.

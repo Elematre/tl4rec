@@ -46,12 +46,32 @@ def get_pretrain_graph_name(graphs):
 
     
 
+
 def log_results_to_db(run_data, db_path):
     """Log results into SQLite database at a given path."""
     conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Get existing columns in the database
+    cursor.execute("PRAGMA table_info(experiments)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    # Convert run_data to DataFrame
     df = pd.DataFrame([run_data])
+
+    # Ensure missing columns are included (set to None)
+    for col in existing_columns:
+        if col not in df.columns:
+            df[col] = None  # SQLite treats None as NULL
+
+    # Ensure we only insert columns that exist in the database
+    df = df[list(existing_columns)]
+
+    # Append data to the database
     df.to_sql("experiments", conn, if_exists="append", index=False)
+
     conn.close()
+
 
 def build_run_data(cfg, dataset_name, result_valid, result_test):
     if "checkpoint" in cfg and cfg.checkpoint is not None:
@@ -177,6 +197,11 @@ def save_cfg_of_best_params(best_params, cfg):
 
 
 def get_run_name(cfg):
+    
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        ckpt_name = os.path.basename(cfg.checkpoint)
+    else:
+        ckpt_name = "-"
     num_epoch = cfg.train.num_epoch
     edge_proj_dim = cfg.model.edge_projection["hidden_dims"][0]
     conv_dim = cfg.model.backbone_model.simple_model["input_dim"]
@@ -187,16 +212,13 @@ def get_run_name(cfg):
     elif num_epoch <= 4:
         num_epoch_proj_ft = cfg.train.fine_tuning["num_epoch_proj"]
         num_epoch_whole_ft = num_epoch - num_epoch_proj_ft
-        run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+        #run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+        run_type = "FT"
     else:
         run_type = f"End-to-End"
         
-    if cfg.model.backbone_model.simple_model["project_conv_emb"]:
-        edge_emb_usage = "edge_proj"
-    else:
-        edge_emb_usage = "edge_init"
         
-    return f"{run_type}-{edge_emb_usage}-{model_type}"
+    return f"{run_type}-{ckpt_name}"
     
 def log_node_features(user_projection, item_projection, name):             
             user_mean, user_var = user_projection.mean().item(), user_projection.var().item()
@@ -306,7 +328,7 @@ def get_device(cfg):
 
 
 def create_working_directory(cfg):
-    file_name = "working_dir.tmp"
+    file_name = f"working_dir_{os.environ.get('SLURM_JOB_ID', os.getpid())}.tmp"
     world_size = get_world_size()
     if cfg.train.gpus is not None and len(cfg.train.gpus) != world_size:
         error_msg = "World size is %d but found %d GPUs in the argument"
@@ -319,17 +341,25 @@ def create_working_directory(cfg):
     working_dir = os.path.join(os.path.expanduser(cfg.output_dir),
                                cfg.model["class"], cfg.dataset["class"], time.strftime("%Y-%m-%d-%H-%M-%S"))
 
-    # synchronize working directory
+ #Rank 0 creates the directory and writes the temp file
     if get_rank() == 0:
         with open(file_name, "w") as fout:
             fout.write(working_dir)
-        os.makedirs(working_dir)
-    synchronize()
+        os.makedirs(working_dir, exist_ok=True)
+
+    synchronize()  # Ensure all processes wait until the directory exists
+
+    # Non-rank-0 processes wait for the file
     if get_rank() != 0:
+        while not os.path.exists(file_name):
+            time.sleep(0.1)  # Avoid race condition
         with open(file_name, "r") as fin:
             working_dir = fin.read()
-    synchronize()
+
+    synchronize()  # Ensure all processes finish reading before proceeding
+
     if get_rank() == 0:
+        time.sleep(1)  # Extra delay before deletion
         os.remove(file_name)
 
     os.chdir(working_dir)
