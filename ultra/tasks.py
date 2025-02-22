@@ -603,6 +603,66 @@ def compute_ndcg_at_k(pred, target, k):
    
     return ndcg
 
+def compute_ndcg_at_debug(pred, target, k):
+    """
+    Compute NDCG@k for a batch of predictions.
+
+    Args:
+        pred (Tensor): Predicted scores, shape (batch_size, num_candidates).
+        target (Tensor): Ground truth relevance, shape (batch_size, num_candidates).
+        k (int): Cutoff for NDCG computation.
+
+    Returns:
+        Tensor: NDCG@k for each batch instance, shape (batch_size,).
+    """
+    batch_size = pred.size(0)
+
+    # Step 1: Sort predictions and associated relevance scores by descending order of predictions
+    scores_topk, indices = torch.topk(pred, k, dim=1, largest=True, sorted=True)  # shape (B, k)
+    sorted_relevance = target.gather(1, indices)  # shape (B, k)
+
+    # Step 2: Compute DCG@k
+    discount = 1.0 / torch.log2(torch.arange(2, k + 2, device=pred.device).float())
+    dcg = (sorted_relevance * discount).sum(dim=1)
+
+    # Step 3: Compute IDCG@k (Ideal DCG)
+    ideal_relevance, _ = torch.topk(target.float(), k, dim=1, largest=True, sorted=True)  # shape (B, k)
+    idcg = (ideal_relevance * discount).sum(dim=1)
+
+    # Step 4: Compute NDCG@k
+    ndcg = dcg / idcg
+    if torch.isnan(ndcg).any():
+        print("Warning: Found NaN values in NDCG; replacing with 0.0")
+    ndcg[torch.isnan(ndcg)] = 0.0
+
+    # ---------------------------
+    # DEBUG PRINTS (for a subset)
+    # ---------------------------
+    max_print = min(batch_size, 5)  # avoid huge logs; print for first 5 users in the batch
+    for b in range(max_print):
+        # 1) Total relevant items for user b
+        total_relevant = (target[b] == 1).sum().item()
+
+        # 2) How many relevant items appear in the ideal top-k
+        ideal_ones = (ideal_relevance[b] == 1).sum().item()
+
+        # 3) Which positions in the predicted top-k are relevant
+        #    sorted_relevance[b] is shape (k,)
+        rel_positions = (sorted_relevance[b] == 1).nonzero(as_tuple=True)[0].tolist()
+
+        print(
+            f"[DEBUG] User {b}: "
+            f"total_relevant={total_relevant}, "
+            f"ideal_topk_ones={ideal_ones}, "
+            f"ndcg={ndcg}, "
+            f"predicted_topk_rel_positions={rel_positions}"
+        )
+    # ---------------------------
+
+    return ndcg
+
+
+
 def build_relation_graph(graph):
 
     # expect the graph is already with inverse edges

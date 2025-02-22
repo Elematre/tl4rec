@@ -23,7 +23,6 @@ CKPTS=("Amazon_Beauty.pth" \
            "Beauty_Games_tuned.pth" \
            "Men_Epin_Gowa_Book.pth" \
            "Amazon_Fashion.pth" \
-           "Amazon_Men.pth" \
            "Epinions.pth" \
            "Ml1m.pth" \
            "Gowalla.pth" \
@@ -64,7 +63,7 @@ else
     MODE_NAME="fine-tuned"
 fi
 
-DATASET="Amazon_Games"  # Fixed dataset
+DATASET="Amazon_Men"  # Fixed dataset
 
 # Create jobs directory if it doesn't exist
 mkdir -p ${DIRECTORY}/jobs

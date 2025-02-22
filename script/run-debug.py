@@ -224,10 +224,10 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
             logger.warning("Evaluate on valid")
             
 
-        #result_dict = {}
-        #result_dict["ndcg@20"] = 1
+        result_dict = {}
+        result_dict["ndcg@20"] = 1
         
-        result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 100)
+        #result_dict = test(cfg, model, valid_data, filtered_data=filtered_data, device=device, logger=logger, return_metrics = True, nr_eval_negs = 100)
 
         # Log each metric with the hierarchical key format "training/performance/{metric}"
         if wandb_on:
@@ -235,7 +235,8 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 wandb.log({f"training/performance/{metric}": score})
 
         target_metric = cfg.train["target_metric"]
-        result = result_dict[target_metric]
+        #result = result_dict[target_metric]
+        result = 1
         #scheduler.step()
         #scheduler.step(result) 
         if result > best_result:
@@ -260,12 +261,197 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
         torch.save(state, checkpoint_path)
         
+        
+
+@torch.no_grad()
+def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data=None, nr_eval_negs = 1000):
+    """
+    Per-user evaluation for candidate-based ranking.
     
+    For each unique test user (taken only once regardless of how many test edges they have),
+    this method:
+      1. Creates a DataLoader over user indices (using DistributedSampler so each user is evaluated once).
+      2. For each batch of users, builds a candidate set (cand_size=1000) via tasks.build_candidate_set.
+      3. Uses a generic target_edge_attr (all ones) to get predictions from the model.
+      4. Scatters the candidate scores into a full prediction vector over all items.
+      5. Computes a relevance mask (via tasks.strict_negative_mask and tasks.invert_mask) and then NDGC and ranking.
+      6. Aggregates metrics across batches and uses simple all_reduce to get the same results on all ranks.
+      7. Returns the final MRR (or full metrics) unconditionally.
+      
+    Note:
+      - The generic target_edge_attr is created as all ones with shape (B, edge_dim), where
+        edge_dim = cfg.model.edge_projection["hidden_dims"][0].
+      - We assume tasks.build_candidate_set can handle a batch of user indices.
+    """
+    world_size = util.get_world_size()
+    rank = util.get_rank()
+    print (f"world_size {world_size}")
+    # 1. Obtain unique test users from test_data (assuming test_data.target_edge_index[0] holds user IDs)
+    user_ids = torch.unique(test_data.target_edge_index[0], sorted=True)
+    
+    # 2. Create a DataLoader over user indices.
+    # Using a TensorDataset with the user_ids is sufficient.
+    dataset = torch_data.TensorDataset(user_ids)
+    if world_size > 1:
+        sampler = torch_data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    else:
+        sampler = None
+    batch_size = cfg.train.test_batch_size
+    user_loader = torch_data.DataLoader(dataset, batch_size=batch_size, sampler=sampler, shuffle=False, num_workers=0)
+    
+    # Lists to collect per-user metric tensors.
+    ndcg_list = []
+    rank_list = []
+    num_neg_list = []
+    
+    #  Determine edge_dim from configuration.
+    #edge_dim = cfg.model.edge_projection["hidden_dims"][0]
+    edge_dim = test_data.edge_attr.size(1)
+    num_users = test_data.num_users
+    model.eval()
+    for batch in user_loader:
+         #Original batch: tuple with one tensor of user IDs of shape (B,)
+        user_ids = batch[0]  # shape: (B,)
+        B = user_ids.size(0)
+        # Expand user_ids to shape (B,1)
+        user_ids = user_ids.unsqueeze(1)
+        
+        # Create a tensor of zeros for the last two columns (tail and relation type)
+        generic_zeros = torch.zeros(B, 2, device=device, dtype=user_ids.dtype)
+        
+        # Concatenate along the second dimension to form a (B, 3) tensor.
+        # Column 0: user id, Columns 1-2: generic zeros.
+        user_batch = torch.cat([user_ids, generic_zeros], dim=1)
+                
+        # 3. Create a generic target_edge_attr: all ones of shape (B, edge_dim).
+        generic_target = torch.ones((B, edge_dim), device=device)
+        if nr_eval_negs == -1:
+            t_batch, _ = tasks.all_negative(test_data, user_batch)
+            t_pred = model(test_data, t_batch, generic_target)
+            #t_pred= (bs, num_nodes)
+                # compute ndcg:
+        
+            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
+            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, user_batch, context = 3)
+            t_relevance,_ = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
+            #test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
+    
+            # mask out all scores of known edges. 
+            if filtered_data is None:
+                t_mask, h_mask = tasks.strict_negative_mask(test_data, user_batch)
+            else:
+                t_mask, h_mask = tasks.strict_negative_mask(filtered_data, user_batch)
+                
+            t_mask_inv, _ = tasks.invert_mask(t_mask, h_mask, num_users)
+            # mask out pos_t/h_index 
+            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
+            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
+            
+            # For tail predictions:
+            t_pred[t_mask_pred] = float('-inf')
+            
+            #compute ndcg scores 
+            batch_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)  # returns a tensor of shape (B,)
+            ndcg_list.append(batch_ndcg) 
+            # Instead of multiplying, use where to mask out non-positive scores.
+
+            masked_t_pred = torch.where(t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            pos_scores = masked_t_pred.max(dim=1)[0]
+            negative_scores = torch.where(t_mask.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
+            
+            rank_list.append(batch_ranks)
+        else:
+            # 4. Build candidate set for these users.
+            # We assume tasks.build_candidate_set returns (t_batch, h_batch) and we ignore h_batch.
+            t_batch, _ = tasks.build_candidate_set(test_data, filtered_data, user_batch, cand_size=1000, num_users=num_users)
+            # t_batch should be of shape (B, cand_size, 2) where the second column contains candidate tail indices.
+            
+            # 5. Create a full prediction tensor for tails: (B, test_data.num_nodes) filled with -inf.
+            t_pred = torch.full((B, test_data.num_nodes), float('-inf'), device=device)
+            
+            # 6. Get model predictions for the candidate set.
+            # Expected output shape: (B, cand_size)
+            t_pred_batch = model(test_data, t_batch, generic_target)
+            
+            # 7. Scatter candidate scores into the full prediction tensor.
+            t_indices = t_batch[:, :, 1]  # Candidate tail indices (B, cand_size)
+            t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
+            # 8. Compute the relevance mask.
+            # For per-user evaluation, we assume tasks.strict_negative_mask accepts a batch of user indices.
+            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, user_batch, context=3)
+            t_relevance, _ = tasks.invert_mask(t_relevance_neg, h_relevance_neg, test_data.num_users)
+            # t_batch has shape (B, cand_size, 2), where t_batch[i, :, 1] are candidate item IDs for user i.
+            # t_relevance has shape (B, num_items).
+            
+            # 9. Compute NDGC for this batch.
+            batch_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)  # returns a tensor of shape (B,)
+            ndcg_list.append(batch_ndcg)
+            
+            # Instead of multiplying, use where to mask out non-positive scores.
+            masked_t_pred = torch.where(t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            negative_scores = torch.where(~t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            pos_scores = masked_t_pred.max(dim=1)[0]
+            batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
+            
+            rank_list.append(batch_ranks)
+            
+    # 11. Concatenate batch results locally.
+    all_ndcg = torch.cat(ndcg_list, dim=0)   # shape: (num_users_local,)
+    all_ranks = torch.cat(rank_list, dim=0)     # shape: (num_users_local,)
+    print(f"Local all_ndcg.shape : {all_ndcg.shape}")
+    
+    # 12. Distributed aggregation using all_gather.
+    if world_size > 1:
+        # Prepare placeholders for gathered results.
+        gathered_ndcg = [torch.zeros_like(all_ndcg) for _ in range(world_size)]
+        gathered_ranks = [torch.zeros_like(all_ranks) for _ in range(world_size)]
+        gathered_num_neg = [torch.zeros_like(all_num_neg) for _ in range(world_size)]
+        
+        # All-gather the local results from all ranks.
+        dist.all_gather(gathered_ndcg, all_ndcg)
+        dist.all_gather(gathered_ranks, all_ranks)
+        dist.all_gather(gathered_num_neg, all_num_neg)
+        
+        # Concatenate along the 0 dimension to form the global tensors.
+        all_ndcg = torch.cat(gathered_ndcg, dim=0)
+        all_ranks = torch.cat(gathered_ranks, dim=0)
+        all_num_neg = torch.cat(gathered_num_neg, dim=0)
+        
+    print(f"Global all_ndcg.shape : {all_ndcg.shape}")
+
+
+    if rank == 0:
+        # Compute base metrics
+        metrics = {
+            "mrr": (1.0 / all_ranks.float()).mean().item(),
+            f"ndcg@{k}": all_ndcg.mean().item()
+        }
+    
+        # Compute hits@k for each configured cutoff
+        for metric in cfg.task.metric:
+            if metric.startswith("hits@"):
+                try:
+                    cutoff = int(metric.split("@")[1])
+                except ValueError:
+                    cutoff = 10
+                metrics[metric] = (all_ranks <= cutoff).float().mean().item()
+    
+        # Log metrics
+        for key, value in metrics.items():
+            logger.warning("%s: %g", key, value)
+    
+    # Return either MRR or the full metrics dictionary
+    return metrics if return_metrics else metrics["mrr"]
+
+
    
 
 
 @torch.no_grad()
 def test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
+    if not nr_eval_negs == 100:
+        return test_per_user(cfg, model, test_data, device, logger, filtered_data, return_metrics, valid_data, nr_eval_negs)
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
@@ -408,8 +594,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
             
             # Split the batch into t_batch and h_batch
             t_batch, h_batch = tasks.build_candidate_set(test_data, filtered_data, batch, cand_size=1000, num_users=test_data.num_users)
-
-            
+            print (f"t_batch.shape :{t_batch.shape}")
+            print (f"target_edge_attr.shape: target_edge_attr.shape")
             # Get predictions for the sampled negatives
             t_pred_batch = model(test_data, t_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs + 1)
             h_pred_batch = model(test_data, h_batch, target_edge_attr)  # Shape: (batch_size, nr_eval_negs + 1)
@@ -638,10 +824,14 @@ if __name__ == "__main__":
     dataset_name = cfg.dataset["class"]
     is_amazon = dataset_name.startswith("Amazon")
     nr_eval_negs = util.set_eval_negs(dataset_name)
+    if not nr_eval_negs == -1:
+        k = 10
     
+
         
     run_name = util.get_run_name(cfg)
     wandb_on = cfg.train["wandb"]
+    cfg["run_name"] = f"{dataset_name}-{run_name}"
     if wandb_on:
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name= f"{dataset_name}-{run_name}", config=cfg)
@@ -653,6 +843,17 @@ if __name__ == "__main__":
     
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
+    
+    # make datasets smaller since we dont use edge_features
+    print ("discarded node_features")
+    train_data.x_user = None
+    train_data.x_item = None
+    valid_data.x_user = None
+    valid_data.x_item = None
+    test_data.x_user = None
+    test_data.x_item = None
+    
+    # set bpe
     num_edges = train_data.edge_index.size(1)
     bpe = util.set_bpe(cfg,num_edges)
     print(f"bpe = {bpe}")
@@ -660,33 +861,10 @@ if __name__ == "__main__":
     #cfg.train["batch_per_epoch"]= 10
     #print ("This needs to be changed")
     #print (f"bpe {bpe}")
-    # make datasets smaller if we dont use node_features
-    if not cfg.model.get("node_features", True):
-        train_data.x_user = None
-        train_data.x_item = None
-        valid_data.x_user = None
-        valid_data.x_item = None
-        test_data.x_user = None
-        test_data.x_item = None
-        print ("discarded node_features")
-    else:
-        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
-        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
+  
         
     # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
-    if True: 
-        edge_attr_mean = train_data.edge_attr.mean().item()
-        edge_attr_std = train_data.edge_attr.std().item()
-        edge_attr_var = train_data.edge_attr.var().item()
-    
-        # Log these metrics under the key "debug/edge_attr_metric"
-        if wandb_on:
-            wandb.log({
-                "debug/edge_attr_mean": edge_attr_mean,
-                "debug/edge_attr_std": edge_attr_std,
-                "debug/edge_attr_var": edge_attr_var
-            })
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
@@ -710,11 +888,7 @@ if __name__ == "__main__":
        # embedding_item_cfg = cfg.model.embedding_item
     #)
 
-    if "checkpoint" in cfg and cfg.checkpoint is not None:
-        state = torch.load(cfg.checkpoint, map_location="cpu")
-        model.ultra.load_state_dict(state["model"])
-        #print ("this needs to be changed")
-        #model.load_state_dict(state["model"])
+    
     
     fine_tuning = cfg.train.num_epoch < 4
     #model = pyg.compile(model, dynamic=True)
@@ -730,6 +904,12 @@ if __name__ == "__main__":
     
         # Apply the weight initialization
         model.apply(weights_init)
+        
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        state = torch.load(cfg.checkpoint, map_location="cpu")
+        model.ultra.load_state_dict(state["model"])
+        #print ("this needs to be changed")
+        #model.load_state_dict(state["model"])
     
     if task_name == "InductiveInference":
         # filtering for inductive datasets
@@ -775,8 +955,6 @@ if __name__ == "__main__":
             logger.warning("Amazon dataset detected. Performing 5 evaluations and averaging results.")
         
         test_results = []
-        # set k for ndcg@10 TODO: should be adjusted
-        k = 10
         for _ in range(5):
             result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs = nr_eval_negs)
             test_results.append(result)
@@ -786,14 +964,14 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_valid = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        #pass
-        result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
+        pass
+        #result_valid = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
     
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_valid.items():
             wandb.summary[f"validation/performance/{metric}"] = score
 
     
@@ -817,17 +995,27 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_test = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        print (f"test_filtered_data.edge_index.size(){test_filtered_data.edge_index.size()}")
-        print (f"test_data.num_users{test_data.num_users}") 
-        print (f"test_data.num_items{test_data.num_items}") 
-        result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
+        result_test = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
 
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_test.items():
             wandb.summary[f"test/performance/{metric}"] = score
+        
+    if util.get_rank() == 0 and cfg.train["save_results_db"]:
+        # Define a custom path for the SQLite database
+        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results.db" 
+        # Ensure the directory exists before writing
+        Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
+        run_data = util.build_run_data(cfg, dataset_name, result_valid, result_test)
+        util.log_results_to_db(run_data, db_path=DB_FILE)
+    
+ 
+    
+   
+    
  
     
    
