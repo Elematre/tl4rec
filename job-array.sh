@@ -1,61 +1,19 @@
 #!/bin/bash
-#SBATCH --mail-type=NONE                           # Mail configuration: NONE, BEGIN, END, FAIL, REQUEUE, ALL
-#SBATCH --output=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%A_%a.out   # Output file (A = JobID, a = ArrayIndex)
-#SBATCH --error=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%A_%a.err    # Error file
+#SBATCH --mail-type=NONE                     # mail configuration: NONE, BEGIN, END, FAIL, REQUEUE, ALL
+#SBATCH --output=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%j_%a.out   # Output file, where %j is JOBID and %a is the array index
+#SBATCH --error=/itet-stor/trachsele/net_scratch/tl4rec/jobs/%j_%a.err    # Error file, where %j is JOBID and %a is the array index
+#SBATCH --mem=20G
+#SBATCH --export=ALL
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:geforce_rtx_3090:1                # Allocate 1 GPU per job
-#SBATCH --nodelist=tikgpu09                          # Specific node reservation
-#SBATCH --array=0-9                                 # Two evaluations per ckpt (if 5 ckpts, 0–9)
+#SBATCH --gres=gpu:geforce_rtx_3090:1
+#SBATCH --nodelist=tikgpu09
+#SBATCH --array=0-9                          # Array job: indices 0 to 9 for 10 datasets
 
-# User-specific variables
 ETH_USERNAME=trachsele
 PROJECT_NAME=tl4rec
 DIRECTORY=/itet-stor/${ETH_USERNAME}/net_scratch/${PROJECT_NAME}
 CONDA_ENVIRONMENT=ba_bugfix
-
-# Set the checkpoint directory full path (update if necessary)
-CKPT_DIR=${DIRECTORY}/ckpts/pretrain
-
-# Define an array of checkpoint file names (without path)
-CKPTS=("LastFM.pth" \
-             "Ml1m.pth" \
-             "BookX.pth" \
-             "Gowalla.pth" \
-             "Yelp18.pth")
-            
-
-# Prepend the full path for each checkpoint file
-for i in "${!CKPTS[@]}"; do
-    CKPTS[$i]="${CKPT_DIR}/${CKPTS[$i]}"
-done
-
-# Total number of checkpoint files
-NUM_CKPTS=${#CKPTS[@]}
-
-# Compute the mode and checkpoint index from the SLURM_ARRAY_TASK_ID
-# Mode: 0 for zero-shot (epoch=0), 1 for fine-tuned (epoch=1)
-job_index=$SLURM_ARRAY_TASK_ID
-mode=$(( job_index % 2 ))
-ckpt_index=$(( job_index / 2 ))
-
-if [ $ckpt_index -ge $NUM_CKPTS ]; then
-    echo "Invalid job index: $SLURM_ARRAY_TASK_ID"
-    exit 1
-fi
-
-CKPT=${CKPTS[$ckpt_index]}
-
-# Set the epoch based on the mode
-if [ $mode -eq 0 ]; then
-    EPOCH=0
-    MODE_NAME="zero-shot"
-else
-    EPOCH=1
-    MODE_NAME="fine-tuned"
-fi
-
-DATASET="Amazon_Beauty"  # Fixed dataset
 
 # Create jobs directory if it doesn't exist
 mkdir -p ${DIRECTORY}/jobs
@@ -63,43 +21,46 @@ mkdir -p ${DIRECTORY}/jobs
 # Exit on errors
 set -o errexit
 
-# Temporary directory setup
+# Set up a temporary directory for the job and clean up automatically
 TMPDIR=$(mktemp -d)
 if [[ ! -d ${TMPDIR} ]]; then
-    echo "Failed to create temp directory" >&2
+    echo 'Failed to create temp directory' >&2
     exit 1
 fi
 trap "exit 1" HUP INT TERM
 trap 'rm -rf "${TMPDIR}"' EXIT
 export TMPDIR
 
-# Change to temporary directory
+# Change to the temporary directory
 cd "${TMPDIR}" || exit 1
 
-# Log system info
+# Log some useful information
 echo "Running on node: $(hostname)"
 echo "In directory: $(pwd)"
 echo "Starting on: $(date)"
 echo "SLURM_JOB_ID: ${SLURM_JOB_ID}"
-echo "Evaluating dataset: $DATASET"
-echo "Evaluating checkpoint: $CKPT in $MODE_NAME mode (Epoch: $EPOCH)"
+echo "SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"
 
-# Load Conda
-[[ -f /itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda ]] && \
-    eval "$(/itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda shell.bash hook)"
+# Activate conda environment
+[[ -f /itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda ]] && eval "$(/itet-stor/${ETH_USERNAME}/net_scratch/conda/bin/conda shell.bash hook)"
 conda activate ${CONDA_ENVIRONMENT}
 echo "Conda activated"
 conda info --envs
 
-# Change to project directory
+# Change back to the main directory
 cd ${DIRECTORY}
 
-# Run evaluation
-python script/run.py -c config/recommender/slurm_cfg.yaml \
-    --dataset "$DATASET" --epochs $EPOCH --bpe 1000 --gpus "[0]" --ckpt "$CKPT"
+# Define datasets array
+DATASETS=("Epinions" "LastFM" "BookX" "Ml1m" "Gowalla" "Amazon_Beauty" "Amazon_Fashion" "Amazon_Men" "Amazon_Games" "Yelp18")
 
-# Log completion time
-echo "Finished evaluation for checkpoint: $CKPT in $MODE_NAME mode"
+# Select the dataset based on the SLURM array index
+DATASET=${DATASETS[$SLURM_ARRAY_TASK_ID]}
+echo "Processing dataset: ${DATASET}"
+
+# Run training and evaluation with epochs = 9 and bpe = 0
+python script/run.py -c config/recommender/slurm_cfg.yaml --dataset ${DATASET} --epochs 8 --bpe 0 --gpus "[0]" --ckpt null
+
+# Log the finish time
 echo "Finished at: $(date)"
 
 exit 0

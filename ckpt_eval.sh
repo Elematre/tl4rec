@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:geforce_rtx_3090:1                # Allocate 1 GPU per job
 #SBATCH --nodelist=tikgpu09                          # Specific node reservation
-#SBATCH --array=0-23                                # Two evaluations per ckpt (if 12 ckpts, 0–23)
+#SBATCH --array=0-71                                 # Total jobs = (9 datasets * 8 checkpoints)
 
 # User-specific variables
 ETH_USERNAME=trachsele
@@ -14,56 +14,45 @@ PROJECT_NAME=tl4rec
 DIRECTORY=/itet-stor/${ETH_USERNAME}/net_scratch/${PROJECT_NAME}
 CONDA_ENVIRONMENT=ba_bugfix
 
-# Set the checkpoint directory full path (update if necessary)
+# Set the checkpoint directory full path
 CKPT_DIR=${DIRECTORY}/ckpts/pretrain
+
+# Define an array of datasets
+DATASETS=("Epinions" "BookX" "Ml1m" "Gowalla" "Amazon_Beauty" "Amazon_Fashion" "Amazon_Men" "Amazon_Games" "Yelp18")
 
 # Define an array of checkpoint file names (without path)
 CKPTS=("Amazon_Beauty.pth" \
-           "Amazon_Games.pth" \
-           "Beauty_Games_tuned.pth" \
-           "Men_Epin_Gowa_Book.pth" \
-           "Amazon_Fashion.pth" \
-           "Epinions.pth" \
-           "Ml1m.pth" \
-           "Gowalla.pth" \
-           "BookX.pth" \
-           "LastFM.pth" \
-           "inionsBeautyMl1m.pth" \
-           "Yelp18.pth")
+       "Amazon_Games.pth" \
+       "Amazon_Fashion.pth" \
+       "Amazon_Men.pth" \
+       "Epinions.pth" \
+       "Ml1m.pth" \
+       "LastFM.pth" \
+       "BookX.pth")
 
-             
-
-# Prepend the full path for each checkpoint file
-for i in "${!CKPTS[@]}"; do
-    CKPTS[$i]="${CKPT_DIR}/${CKPTS[$i]}"
-done
-
-# Total number of checkpoint files
-NUM_CKPTS=${#CKPTS[@]}
-
-# Compute the mode and checkpoint index from the SLURM_ARRAY_TASK_ID
-# Mode: 0 for zero-shot (epoch=0), 1 for fine-tuned (epoch=1)
+# Compute dataset and checkpoint index from the SLURM_ARRAY_TASK_ID
 job_index=$SLURM_ARRAY_TASK_ID
-mode=$(( job_index % 2 ))
-ckpt_index=$(( job_index / 2 ))
+num_ckpts=${#CKPTS[@]}
+num_datasets=${#DATASETS[@]}
 
-if [ $ckpt_index -ge $NUM_CKPTS ]; then
+dataset_index=$(( job_index / num_ckpts ))
+ckpt_index=$(( job_index % num_ckpts ))
+
+# Ensure valid indices
+if [ $dataset_index -ge $num_datasets ] || [ $ckpt_index -ge $num_ckpts ]; then
     echo "Invalid job index: $SLURM_ARRAY_TASK_ID"
     exit 1
 fi
 
+DATASET=${DATASETS[$dataset_index]}
 CKPT=${CKPTS[$ckpt_index]}
 
-# Set the epoch based on the mode
-if [ $mode -eq 0 ]; then
-    EPOCH=0
-    MODE_NAME="zero-shot"
-else
-    EPOCH=1
-    MODE_NAME="fine-tuned"
-fi
+# Set the checkpoint full path
+CKPT="${CKPT_DIR}/${CKPT}"
 
-DATASET="Amazon_Men"  # Fixed dataset
+# Fixed settings for zero-shot evaluation
+EPOCH=0
+MODE_NAME="zero-shot"
 
 # Create jobs directory if it doesn't exist
 mkdir -p ${DIRECTORY}/jobs
@@ -102,12 +91,12 @@ conda info --envs
 # Change to project directory
 cd ${DIRECTORY}
 
-# Run evaluation
+# Run evaluation (zero-shot mode only)
 python script/run.py -c config/recommender/slurm_cfg.yaml \
     --dataset "$DATASET" --epochs $EPOCH --bpe 1000 --gpus "[0]" --ckpt "$CKPT"
 
 # Log completion time
-echo "Finished evaluation for checkpoint: $CKPT in $MODE_NAME mode"
+echo "Finished evaluation for dataset: $DATASET with checkpoint: $CKPT in $MODE_NAME mode"
 echo "Finished at: $(date)"
 
 exit 0

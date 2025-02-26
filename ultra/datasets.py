@@ -459,7 +459,7 @@ class Gowalla(InMemoryDataset):
         )
 
         test_data = Data(
-            edge_index=train_edges, edge_type=train_edge_types, edge_attr = train_edges_combined_features, 
+            edge_index=train_edges_combined, edge_type=train_edge_types, edge_attr = train_edges_combined_features, 
             num_nodes=num_nodes, 
             target_edge_index=test_edges, target_edge_type=test_edge_types, target_edge_attr = test_edges_features,
             num_relations=num_relations

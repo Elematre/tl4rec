@@ -835,7 +835,7 @@ if __name__ == "__main__":
         
     if util.get_rank() == 0 and cfg.train["save_results_db"]:
         # Define a custom path for the SQLite database
-        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results.db" 
+        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results_all_to_all.db"
         # Ensure the directory exists before writing
         Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
         run_data = util.build_run_data(cfg, dataset_name, result_valid, result_test)

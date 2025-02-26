@@ -62,7 +62,7 @@ train:
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 4
-  save_ckpt: yes
+  save_ckpt: no
   save_results_db: yes
   fine_tuning:
     num_epoch_proj: 0

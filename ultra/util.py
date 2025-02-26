@@ -77,7 +77,7 @@ def build_run_data(cfg, dataset_name, result_valid, result_test):
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         ckpt_name = os.path.basename(cfg.checkpoint)
     else:
-        ckpt_name = "-"
+        ckpt_name = "ETE"
     run_data = {
     "ckpt": ckpt_name,
     "dataset": dataset_name,

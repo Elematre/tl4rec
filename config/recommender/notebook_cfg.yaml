@@ -61,7 +61,7 @@ train:
   init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
-  test_batch_size: 4
+  test_batch_size: 32
   save_ckpt: no
   save_results_db: no
   fine_tuning:

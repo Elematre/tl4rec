@@ -453,6 +453,9 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     if not nr_eval_negs == 100:
         return test_per_user(cfg, model, test_data, device, logger, filtered_data, return_metrics, valid_data, nr_eval_negs)
     world_size = util.get_world_size()
+    user_ids = torch.unique(test_data.target_edge_index[0], sorted=True)
+    print(f"user_ids.shape : {user_ids.shape}")
+    print(f"test_data.target_edge_index.shape : {test_data.target_edge_index.shape}")
     rank = util.get_rank()
     num_users = test_data.num_users
     wandb_on = cfg.train["wandb"]
@@ -477,6 +480,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     tail_ndcgs = []
     tail_rankings, num_tail_negs = [], []  # for explicit tail-only evaluation needed for 5 datasets
     for batch_with_idx in test_loader:
+
         batch = batch_with_idx[:,:3]
         edge_indices = batch_with_idx[:, 3].long()
         target_edge_attr = test_data.target_edge_attr[edge_indices,:]
@@ -786,6 +790,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                 values = _metric_name[5:].split("_")
                 threshold = int(values[0])
                 if len(values) > 1:
+                    print ("im doing biased")
                     num_sample = int(values[1])
                     # unbiased estimation
                     fp_rate = (_ranking - 1).float() / _num_neg
@@ -797,6 +802,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                         score += num_comb * (fp_rate ** i) * ((1 - fp_rate) ** (num_sample - i - 1))
                     score = score.mean()
                 else:
+                    print (f"_ranking.shape {_ranking.shape}")
                     score = (_ranking <= threshold).float().mean()
             logger.warning("%s: %g" % (metric, score))
             metrics[metric] = score
@@ -843,7 +849,7 @@ if __name__ == "__main__":
     
     
     train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
-    
+    test_functions.test_pyG_graph([train_data, valid_data, test_data])
     # make datasets smaller since we dont use edge_features
     print ("discarded node_features")
     train_data.x_user = None
