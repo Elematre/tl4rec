@@ -55,8 +55,8 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
         if i == 0:
             # Add backbone convolution parameters for the first model
             param_groups.append({"params": model.ultra.simple_model.parameters(), "lr": cfg.optimizer["backbone_conv_lr"]})
-            param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
-            param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
+            #param_groups.append({"params": model.ultra.user_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_user_lr"]})
+            #param_groups.append({"params": model.ultra.item_mlp.parameters(), "lr": cfg.optimizer["backbone_mlp_item_lr"]})
     
         if cfg.model["node_features"]:
             # Add projection MLP parameters for each model
@@ -191,7 +191,7 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
             logger.warning(separator)
             logger.warning("Evaluate on valid")
         #result = 0
-        result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0)
+        result = test(cfg, models, valid_data, filtered_data=filtered_data, context = 0, nr_eval_negs = 100)
         #result = test(cfg, model, valid_data, filtered_data=filtered_data, context = 0)
         if result > best_result:
             best_result = result
@@ -207,17 +207,12 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
     
     # save the final model state
     if rank == 0:
-        # Extract the last 6 letters of each dataset name
-        dataset_names = cfg.dataset['graphs']  # Example: ['Amazon_Beauty', 'Amazon_Games']
-        dataset_prefix = ''.join([name[-6:] for name in dataset_names])  # 'AmazoAmazo'
-    
-        # Get the current timestamp in a readable format
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+        graph_name = util.get_pretrain_graph_name(cfg.dataset['graphs'])
     
         # Construct the checkpoint filename
-        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts"
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_name = f"{dataset_prefix}_{current_time}.pth"
+        checkpoint_name = f"{graph_name}.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
     
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
@@ -228,7 +223,7 @@ def train_and_validate(cfg, models, train_data, valid_data, filtered_data=None, 
 
 
 @torch.no_grad()
-def test(cfg, models, test_data, filtered_data=None, context = 0):
+def test(cfg, models, test_data, filtered_data=None, context = 0, nr_eval_negs = 100):
 #def test(cfg, models, test_data, filtered_data=None, context = 0):
     # context is used for determining the calling context of test (train, valid, test)
     
@@ -253,36 +248,81 @@ def test(cfg, models, test_data, filtered_data=None, context = 0):
         num_negatives = []
         ndcgs = []
         for batch in test_loader:
-            t_batch, h_batch = tasks.all_negative(test_graph, batch)
-            t_pred = model(test_graph, t_batch)
-            h_pred = model(test_graph, h_batch)
-
+            
             if filtered_data is None:
                 t_mask, h_mask = tasks.strict_negative_mask(test_graph, batch)
             else:
                 t_mask, h_mask = tasks.strict_negative_mask(filters, batch)
             pos_h_index, pos_t_index, pos_r_index = batch.t()
             
-            # compute ndcg@20
-            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
-            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_graph, batch, context = 3)
-            t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-            #test_functions.validate_relevance(t_relevance, h_relevance, test_graph, pos_h_index, pos_t_index)
-            
-            # mask out all scores of known edges. 
-            t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
-            # mask out pos_t/h_index 
-            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
-            h_mask_pred = h_mask_inv.logical_xor(h_relevance)
-            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_graph, filters, pos_h_index, pos_t_index)
-    
-            t_pred[t_mask_pred] = float('-inf')
-            h_pred[h_mask_pred] = float('-inf')
+            if nr_eval_negs == -1:
+                t_batch, h_batch = tasks.all_negative(test_graph, batch)
+                t_pred = model(test_graph, t_batch)
+                h_pred = model(test_graph, h_batch)
+
+                # compute ndcg@20
+                # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
+                t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_graph, batch, context = 3)
+                t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
+                #test_functions.validate_relevance(t_relevance, h_relevance, test_graph, pos_h_index, pos_t_index)
+                
+                # mask out all scores of known edges. 
+                t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
+                # mask out pos_t/h_index 
+                t_mask_pred = t_mask_inv.logical_xor(t_relevance)
+                h_mask_pred = h_mask_inv.logical_xor(h_relevance)
+                #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_graph, filters, pos_h_index, pos_t_index)
         
-            #compute ndcg scores 
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
-            ndcgs += [t_ndcg, h_ndcg]
+                t_pred[t_mask_pred] = float('-inf')
+                h_pred[h_mask_pred] = float('-inf')
+            
+                #compute ndcg scores 
+                t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+                h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+                ndcgs += [t_ndcg, h_ndcg]
+            else:
+                #print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
+                batch_size = batch.size(0)
+                # Create tensors filled with -infinity
+                t_pred = torch.full((batch_size, test_graph.num_nodes), float('-inf'), device=batch.device)
+                h_pred = torch.full((batch_size, test_graph.num_nodes), float('-inf'), device=batch.device)
+                
+                # Concatenate batch for negative sampling
+                batch_concat = torch.cat((batch, batch), dim=0)
+                
+                # Perform negative sampling
+                batch_sampled = tasks.negative_sampling(filters, batch_concat, nr_eval_negs, strict=True)
+                
+                # Split the batch into t_batch and h_batch
+                t_batch = batch_sampled[:batch_size, :, :]
+                h_batch = batch_sampled[batch_size:, :, :]
+                
+                # Get predictions for the sampled negatives
+                t_pred_batch = model(test_graph, t_batch)  # Shape: (batch_size, nr_eval_negs + 1)
+                h_pred_batch = model(test_graph, h_batch)  # Shape: (batch_size, nr_eval_negs + 1)
+                
+    
+                # Use scatter to populate t_pred and h_pred efficiently
+                # Extract the tail indices from t_batch and head indices from h_batch
+                t_indices = t_batch[:, :, 1]  # Tail node indices, shape: (batch_size, 101)
+                h_indices = h_batch[:, :, 0]  # Head node indices, shape: (batch_size, 101)
+                
+                # Scatter predictions into the respective tensors
+                t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
+                h_pred = h_pred.scatter(1, h_indices, h_pred_batch)
+    
+                # Initialize relevance tensors directly with zeros
+                t_relevance = torch.zeros((batch_size, test_graph.num_nodes), device=batch.device)
+                h_relevance = torch.zeros((batch_size, test_graph.num_nodes), device=batch.device)
+                
+                # Set the relevance directly using advanced indexing
+                t_relevance[torch.arange(batch_size, device=batch.device), t_indices[:, 0]] = 1
+                h_relevance[torch.arange(batch_size, device=batch.device), h_indices[:, 0]] = 1
+    
+                #compute ndcg scores 
+                t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+                h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+                ndcgs += [t_ndcg, h_ndcg]
 
     
             

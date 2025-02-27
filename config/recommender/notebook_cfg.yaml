@@ -47,7 +47,7 @@ task:
   num_negative: 54
   strict_negative: yes
   adversarial_temperature: 1
-  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
+  metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg]
   # note if one changes the k from ndcg this should also be adjusted in the code
 
 optimizer:
@@ -61,13 +61,15 @@ train:
   log_interval: 100
   batch_per_epoch: {{ bpe }}
   loss: bce # Options: Bpr, bce
-  target_metric: ndcg@20
+  target_metric: ndcg
   wandb: no
   gradient_clip: no
   init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 8
+  save_ckpt: no
+  save_results_db: yes
   fine_tuning:
     num_epoch_proj: 1
    

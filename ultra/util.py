@@ -6,6 +6,8 @@ import time
 import logging
 import argparse
 import datetime
+import sqlite3
+import pandas as pd
 
 import yaml
 import jinja2
@@ -22,6 +24,84 @@ from ultra import models, datasets
 
 
 logger = logging.getLogger(__file__)
+
+
+def get_pretrain_graph_name(graphs):
+    """
+    Generates an appropriate pretrain graph name based on the given dataset subset.
+    - Amazon datasets truncate the 'Amazon_' prefix.
+    - All dataset names are shortened to their first 4 letters.
+    - The names are concatenated to form a single identifier.
+    
+    :param graphs: List of dataset names (subset of DATASETS)
+    :return: Pretrain graph name string
+    """
+    processed_names = []
+    
+    for graph in graphs:
+        if graph.startswith("Amazon_"):
+            graph = graph[7:]  # Remove 'Amazon_' prefix
+        processed_names.append(graph[:4])  # Take the first 4 letters
+    
+    return "_".join(processed_names)
+
+    
+
+
+def log_results_to_db(run_data, db_path):
+    """Log results into SQLite database at a given path."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Get existing columns in the database
+    cursor.execute("PRAGMA table_info(results)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    # Convert run_data to DataFrame
+    df = pd.DataFrame([run_data])
+
+    # Ensure missing columns are included (set to None)
+    for col in existing_columns:
+        if col not in df.columns:
+            df[col] = None  # SQLite treats None as NULL
+
+    # Ensure we only insert columns that exist in the database
+    df = df[list(existing_columns)]
+
+    # Append data to the database
+    df.to_sql("results", conn, if_exists="append", index=False)
+
+    conn.close()
+
+
+def build_run_data(cfg, dataset_name, result_valid, result_test):
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        ckpt_name = os.path.basename(cfg.checkpoint)
+    else:
+        ckpt_name = "ETE"
+    run_data = {
+    "ckpt": ckpt_name,
+    "dataset": dataset_name,
+    "epochs": cfg.train["num_epoch"],
+    "bpe" : cfg.train["batch_per_epoch"],
+    "FT": cfg.train.fine_tuning["num_epoch_proj"]}
+    # Append validation results with 'valid_' prefix
+
+    # Function to safely convert tensors to float
+    def convert_value(value):
+        if isinstance(value, torch.Tensor):
+            return value.item()  # Convert single-value tensor to float
+        return value  # Otherwise, return as is
+    for metric, value in result_valid.items():
+        run_data[f"valid_{metric}"] = convert_value(value)
+    
+    # Append test results with 'test_' prefix
+    for metric, value in result_test.items():
+        run_data[f"test_{metric}"] = convert_value(value)
+        
+    #Todo append result_valid and result_test with an approriate prefix
+    return run_data
+    
 
 def set_bpe(cfg, num_edges):
     epochs = cfg.train["num_epoch"]
@@ -244,9 +324,8 @@ def get_device(cfg):
         device = torch.device("cpu")
     return device
 
-
 def create_working_directory(cfg):
-    file_name = "working_dir.tmp"
+    file_name = f"working_dir_{os.environ.get('SLURM_JOB_ID', os.getpid())}.tmp"
     world_size = get_world_size()
     if cfg.train.gpus is not None and len(cfg.train.gpus) != world_size:
         error_msg = "World size is %d but found %d GPUs in the argument"
@@ -259,17 +338,25 @@ def create_working_directory(cfg):
     working_dir = os.path.join(os.path.expanduser(cfg.output_dir),
                                cfg.model["class"], cfg.dataset["class"], time.strftime("%Y-%m-%d-%H-%M-%S"))
 
-    # synchronize working directory
+ #Rank 0 creates the directory and writes the temp file
     if get_rank() == 0:
         with open(file_name, "w") as fout:
             fout.write(working_dir)
-        os.makedirs(working_dir)
-    synchronize()
+        os.makedirs(working_dir, exist_ok=True)
+
+    synchronize()  # Ensure all processes wait until the directory exists
+
+    # Non-rank-0 processes wait for the file
     if get_rank() != 0:
+        while not os.path.exists(file_name):
+            time.sleep(0.1)  # Avoid race condition
         with open(file_name, "r") as fin:
             working_dir = fin.read()
-    synchronize()
+
+    synchronize()  # Ensure all processes finish reading before proceeding
+
     if get_rank() == 0:
+        time.sleep(1)  # Extra delay before deletion
         os.remove(file_name)
 
     os.chdir(working_dir)

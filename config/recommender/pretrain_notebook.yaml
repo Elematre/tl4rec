@@ -2,12 +2,12 @@ output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 
 dataset:
   class: JointDataset
-  graphs: [Amazon_Beauty, Amazon_Games]
+  graphs: [Amazon_Beauty, Epinions]
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
 
 model:
   class: Gru-Ultra
-  node_features: yes
+  node_features: no
   user_projection:
    use_dropout: yes
    dropout_rate: 0.1
@@ -21,8 +21,8 @@ model:
   backbone_model:
     simple_model:
       class: SimpleNBFNet
-      input_dim: 40
-      hidden_dims: [40, 40,40, 40]
+      input_dim: 32
+      hidden_dims: [32, 32, 32, 32, 32, 32, 32]
       message_func: distmult
       aggregate_func: sum
       short_cut: yes
@@ -32,16 +32,16 @@ model:
       use_dropout: no
       dropout_rate: 0.1
       use_layer_norm: no
-      hidden_dims: [32, 32]
+      hidden_dims: [16, 16]
     embedding_item:
       use_dropout: no
       dropout_rate: 0.1
       use_layer_norm: no
-      hidden_dims: [32, 32]
-
+      hidden_dims: [16, 16]
+      
 task:
   name: MultiGraphPretraining
-  num_negative: 8
+  num_negative: 54
   strict_negative: yes
   adversarial_temperature: 1
   metric: [mr, mrr, hits@1, hits@3, hits@10, ndcg@20]
@@ -50,16 +50,16 @@ optimizer:
   class: AdamW
   projection_user_lr: 1.0e-4
   projection_item_lr: 1.0e-4
-  backbone_conv_lr: 5.0e-4
+  backbone_conv_lr: 0.00017783663799881164
   backbone_mlp_user_lr: 5.0e-4
   backbone_mlp_item_lr: 5.0e-4
 
 train:
   gpus: [{{ gpus }}]
   batch_size: 4
-  num_epoch: 4
+  num_epoch: 1
   log_interval: 800
-  batch_per_epoch: 80000
+  batch_per_epoch: 20000
   fast_test: 500
   wandb: yes
   #logger: wandb

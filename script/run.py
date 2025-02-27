@@ -16,6 +16,8 @@ from torch.utils import data as torch_data
 from torch_geometric.data import Data
 from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from pathlib import Path
+
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from ultra import tasks, util, test_functions
@@ -174,7 +176,12 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
                 wandb.log({f"training/performance/{metric}": score})
 
         target_metric = cfg.train["target_metric"]
-        result = result_dict[target_metric]
+        # adjust the name for various k's a bit ugly
+        if target_metric == "ndcg":
+            target_metric_name = f"{target_metric}@{k}"
+            result=result_dict[target_metric_name]
+        else:
+            result = result_dict[target_metric]
         #scheduler.step()
         #scheduler.step(result) 
         if result > best_result:
@@ -186,14 +193,203 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
     state = torch.load("model_epoch_%d.pth" % best_epoch, map_location=device)
     model.load_state_dict(state["model"])
     util.synchronize()
-
+    
+    if rank == 0 and cfg.train["save_ckpt"]:
+        # Extract the last 6 letters of each dataset name
+        dataset_name = cfg.dataset["class"]
+    
+        # Construct the checkpoint filename
+        checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_name = f"{dataset_name}.pth"
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+        logger.warning(f"Save final_ckpt to {checkpoint_path}")
+        torch.save(state, checkpoint_path)
 
 
 
 
 @torch.no_grad()
+def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data=None, nr_eval_negs = 1000):
+    """
+    Per-user evaluation for candidate-based ranking.
+    
+    For each unique test user (taken only once regardless of how many test edges they have),
+    this method:
+      1. Creates a DataLoader over user indices (using DistributedSampler so each user is evaluated once).
+      2. For each batch of users, builds a candidate set (cand_size=1000) via tasks.build_candidate_set.
+      3. Uses a generic target_edge_attr (all ones) to get predictions from the model.
+      4. Scatters the candidate scores into a full prediction vector over all items.
+      5. Computes a relevance mask (via tasks.strict_negative_mask and tasks.invert_mask) and then NDGC and ranking.
+      6. Aggregates metrics across batches and uses simple all_reduce to get the same results on all ranks.
+      7. Returns the final MRR (or full metrics) unconditionally.
+      
+    Note:
+      - We assume tasks.build_candidate_set can handle a batch of user indices.
+    """
+    world_size = util.get_world_size()
+    rank = util.get_rank()
+    # 1. Obtain unique test users from test_data (assuming test_data.target_edge_index[0] holds user IDs)
+    user_ids = torch.unique(test_data.target_edge_index[0], sorted=True)
+    
+    # 2. Create a DataLoader over user indices.
+    # Using a TensorDataset with the user_ids is sufficient.
+    dataset = torch_data.TensorDataset(user_ids)
+    if world_size > 1:
+        sampler = torch_data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    else:
+        sampler = None
+    batch_size = cfg.train.test_batch_size
+    user_loader = torch_data.DataLoader(dataset, batch_size=batch_size, sampler=sampler, shuffle=False, num_workers=0)
+    
+    # Lists to collect per-user metric tensors.
+    ndcg_list = []
+    rank_list = []
+    num_neg_list = []
+    
+    #  Determine edge_dim from configuration.
+    #edge_dim = cfg.model.edge_projection["hidden_dims"][0]
+    num_users = test_data.num_users
+    model.eval()
+    for batch in user_loader:
+         #Original batch: tuple with one tensor of user IDs of shape (B,)
+        user_ids = batch[0]  # shape: (B,)
+        B = user_ids.size(0)
+        # Expand user_ids to shape (B,1)
+        user_ids = user_ids.unsqueeze(1)
+        
+        # Create a tensor of zeros for the last two columns (tail and relation type)
+        generic_zeros = torch.zeros(B, 2, device=device, dtype=user_ids.dtype)
+        
+        # Concatenate along the second dimension to form a (B, 3) tensor.
+        # Column 0: user id, Columns 1-2: generic zeros.
+        user_batch = torch.cat([user_ids, generic_zeros], dim=1)
+                
+        # 3. Create a generic target_edge_attr: all ones of shape (B, edge_dim).
+        if nr_eval_negs == -1:
+            t_batch, _ = tasks.all_negative(test_data, user_batch)
+            t_pred = model(test_data, t_batch)
+            #t_pred= (bs, num_nodes)
+                # compute ndcg:
+        
+            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
+            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, user_batch, context = 3)
+            t_relevance,_ = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
+            #test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
+    
+            # mask out all scores of known edges. 
+            if filtered_data is None:
+                t_mask, h_mask = tasks.strict_negative_mask(test_data, user_batch)
+            else:
+                t_mask, h_mask = tasks.strict_negative_mask(filtered_data, user_batch)
+                
+            t_mask_inv, _ = tasks.invert_mask(t_mask, h_mask, num_users)
+            # mask out pos_t/h_index 
+            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
+            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
+            
+            # For tail predictions:
+            t_pred[t_mask_pred] = float('-inf')
+            
+            #compute ndcg scores 
+            batch_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)  # returns a tensor of shape (B,)
+            ndcg_list.append(batch_ndcg) 
+            # Instead of multiplying, use where to mask out non-positive scores.
+
+            masked_t_pred = torch.where(t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            pos_scores = masked_t_pred.max(dim=1)[0]
+            negative_scores = torch.where(t_mask.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
+            
+            rank_list.append(batch_ranks)
+        else:
+            # 4. Build candidate set for these users.
+            # We assume tasks.build_candidate_set returns (t_batch, h_batch) and we ignore h_batch.
+            t_batch, _ = tasks.build_candidate_set(test_data, filtered_data, user_batch, cand_size=1000, num_users=num_users)
+            # t_batch should be of shape (B, cand_size, 2) where the second column contains candidate tail indices.
+            
+            # 5. Create a full prediction tensor for tails: (B, test_data.num_nodes) filled with -inf.
+            t_pred = torch.full((B, test_data.num_nodes), float('-inf'), device=device)
+            
+            # 6. Get model predictions for the candidate set.
+            # Expected output shape: (B, cand_size)
+            t_pred_batch = model(test_data, t_batch)
+            
+            # 7. Scatter candidate scores into the full prediction tensor.
+            t_indices = t_batch[:, :, 1]  # Candidate tail indices (B, cand_size)
+            t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
+            # 8. Compute the relevance mask.
+            # For per-user evaluation, we assume tasks.strict_negative_mask accepts a batch of user indices.
+            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, user_batch, context=3)
+            t_relevance, _ = tasks.invert_mask(t_relevance_neg, h_relevance_neg, test_data.num_users)
+            # t_batch has shape (B, cand_size, 2), where t_batch[i, :, 1] are candidate item IDs for user i.
+            # t_relevance has shape (B, num_items).
+            
+            # 9. Compute NDGC for this batch.
+            batch_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)  # returns a tensor of shape (B,)
+            ndcg_list.append(batch_ndcg)
+            
+            # Instead of multiplying, use where to mask out non-positive scores.
+            masked_t_pred = torch.where(t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            negative_scores = torch.where(~t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
+            pos_scores = masked_t_pred.max(dim=1)[0]
+            batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
+            
+            rank_list.append(batch_ranks)
+            
+    # 11. Concatenate batch results locally.
+    all_ndcg = torch.cat(ndcg_list, dim=0)   # shape: (num_users_local,)
+    all_ranks = torch.cat(rank_list, dim=0)     # shape: (num_users_local,)
+    
+    # 12. Distributed aggregation using all_gather.
+    if world_size > 1:
+        # Prepare placeholders for gathered results.
+        gathered_ndcg = [torch.zeros_like(all_ndcg) for _ in range(world_size)]
+        gathered_ranks = [torch.zeros_like(all_ranks) for _ in range(world_size)]
+        gathered_num_neg = [torch.zeros_like(all_num_neg) for _ in range(world_size)]
+        
+        # All-gather the local results from all ranks.
+        dist.all_gather(gathered_ndcg, all_ndcg)
+        dist.all_gather(gathered_ranks, all_ranks)
+        dist.all_gather(gathered_num_neg, all_num_neg)
+        
+        # Concatenate along the 0 dimension to form the global tensors.
+        all_ndcg = torch.cat(gathered_ndcg, dim=0)
+        all_ranks = torch.cat(gathered_ranks, dim=0)
+        all_num_neg = torch.cat(gathered_num_neg, dim=0)
+        
+
+
+    if rank == 0:
+        # Compute base metrics
+        metrics = {
+            "mrr": (1.0 / all_ranks.float()).mean().item(),
+            f"ndcg@{k}": all_ndcg.mean().item()
+        }
+    
+        # Compute hits@k for each configured cutoff
+        for metric in cfg.task.metric:
+            if metric.startswith("hits@"):
+                try:
+                    cutoff = int(metric.split("@")[1])
+                except ValueError:
+                    cutoff = 10
+                metrics[metric] = (all_ranks <= cutoff).float().mean().item()
+    
+        # Log metrics
+        for key, value in metrics.items():
+            logger.warning("%s: %g", key, value)
+    
+    # Return either MRR or the full metrics dictionary
+    return metrics if return_metrics else metrics["mrr"]
+
+
+@torch.no_grad()
 def test(cfg, model, test_data, device, logger, filtered_data=None, return_metrics=False, valid_data = None, nr_eval_negs = 100):
- 
+    
+    if not nr_eval_negs == 100:
+        return test_per_user(cfg, model, test_data, device, logger, filtered_data, return_metrics, valid_data, nr_eval_negs)
+    
     world_size = util.get_world_size()
     rank = util.get_rank()
     num_users = test_data.num_users
@@ -216,179 +412,50 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
 
 
         pos_h_index, pos_t_index, pos_r_index = batch.t()
-        if nr_eval_negs == -1:
-            t_batch, h_batch = tasks.all_negative(test_data, batch)
-            t_pred = model(test_data, t_batch)
-            if False:
-                # Define a tolerance for floating point differences
-                tolerance = 1e-6
-                
-                # Compute the min and max for each row
-                row_min = t_pred.min(dim=1).values
-                row_max = t_pred.max(dim=1).values
-                
-                # Check if the difference is below tolerance for each row
-                is_constant = (row_max - row_min) < tolerance
-                print(f"[DEBUG] is_constant {is_constant}")
-                # Print results
-                num_constant = is_constant.sum().item()
-                print(f"[DEBUG] {num_constant}/{t_pred.shape[0]} rows in t_pred are constant.")
-                if False:
-                    pos_pred = t_pred.gather(-1, pos_t_index.unsqueeze(-1))
-                    print(f"[DEBUG] Positive scores (pos_pred) per row:\n{pos_pred}")
-                    # Compute row-wise average of predictions for all entries where t_mask is True.
-                    row_avg_neg = []  # to store average negative score per row.
-                    for i in range(t_pred.shape[0]):
-                        # Select predictions for row i where the mask is True.
-                        neg_scores = t_pred[i][t_mask[i]]
-                        if neg_scores.numel() > 0:
-                            avg_neg = neg_scores.mean().item()
-                        else:
-                            avg_neg = float('nan')
-                        row_avg_neg.append(avg_neg)
-                        pos_val = pos_pred[i].item()
-                        print(f"[DEBUG] Row {i}: pos_pred = {pos_val:.4f}, avg_neg_score = {avg_neg:.4f}")
-                        if abs(avg_neg - pos_val) < 1e-6:
-                            print(f"[DEBUG] Row {i}: Negative scores match the positive score.")
-            h_pred = model(test_data, h_batch)
-            #t_pred= (bs, num_nodes)
-                # compute ndcg:
-        
-            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
-            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
-            t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-            #test_functions.validate_relevance(t_relevance, h_relevance, test_data, pos_h_index, pos_t_index)
     
-            # mask out all scores of known edges. 
-            t_mask_inv, h_mask_inv = tasks.invert_mask(t_mask, h_mask, num_users)
-            # mask out pos_t/h_index 
-            t_mask_pred = t_mask_inv.logical_xor(t_relevance)
-            h_mask_pred = h_mask_inv.logical_xor(h_relevance)
-            #test_functions.validate_pred_mask(t_mask_pred, h_mask_pred, test_data, filtered_data, pos_h_index, pos_t_index)
-            
-            # For tail predictions:
-            if False:
-                violation_mask = t_relevance.bool() & t_mask.bool()
-                if violation_mask.any():
-                    num_violations = violation_mask.sum().item()
-                    print("Mismatch found: {} entries where t_relevance == 1 but t_mask == 1.".format(num_violations))
-                t_pos_scores = t_pred[t_relevance.bool()]  # scores for positive (relevant) predictions
-                t_neg_mask = (~t_relevance.bool()) & (~t_mask_pred.bool())
-                t_neg_scores = t_pred[t_neg_mask]
-                
-                avg_t_pos = t_pos_scores.mean() if t_pos_scores.numel() > 0 else torch.tensor(float('nan'))
-                avg_t_neg = t_neg_scores.mean() if t_neg_scores.numel() > 0 else torch.tensor(float('nan'))
-                
-                print("Tail predictions -- Avg. positive score: {:.4f}, Avg. negative score: {:.4f}"
-                      .format(avg_t_pos.item(), avg_t_neg.item()))
+        #print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
+        batch_size = batch.size(0)
+        # Create tensors filled with -infinity
+        t_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
+        h_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
+        
+        # Concatenate batch for negative sampling
+        batch_concat = torch.cat((batch, batch), dim=0)
+        
+        # Perform negative sampling
+        batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, nr_eval_negs, strict=True)
+        
+        # Split the batch into t_batch and h_batch
+        t_batch = batch_sampled[:batch_size, :, :]
+        h_batch = batch_sampled[batch_size:, :, :]
+        
+        # Get predictions for the sampled negatives
+        t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, nr_eval_negs + 1)
+        h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, nr_eval_negs + 1)
+        
 
-            
-            #t_pred[t_mask_pred] = float('-inf')
-            h_pred[h_mask_pred] = float('-inf')
-            
-            if False:
-               # Debug: Compute per-row averages for positive (relevant) scores and negative scores (where mask is True)
-                for i in range(t_pred.shape[0]):
-                    # Average score for entries where relevance is 1
-                    pos_entries = t_pred[i][t_relevance[i].bool()]
-                    avg_pos = pos_entries.mean().item() if pos_entries.numel() > 0 else float('nan')
-                    
-                    # Average score for entries where t_mask is True (candidates for negatives)
-                    neg_entries = t_pred[i][t_mask[i].bool()]
-                    avg_neg = neg_entries.mean().item() if neg_entries.numel() > 0 else float('nan')
-                    
-                    print(f"[DEBUG] Row {i}: avg positive (rel) score: {avg_pos:.4f}, avg negative (mask) score: {avg_neg:.4f}")
-            
-            #compute ndcg scores 
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
-            if False: 
-                # Compute the average NDCG over the batch
-                avg_t_ndcg = t_ndcg.mean().item()
-                print("Average NDCG: {:.4f}".format(avg_t_ndcg))
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
-            ndcgs += [t_ndcg, h_ndcg]
-            tail_ndcgs +=  [t_ndcg]
-            
-        elif nr_eval_negs == 1000:
-            #print ("im here against 1000")
-            # we need to build the cadidate set with all positives per user and the remaining negatives such that set has size 1000
-            batch_size = batch.size(0)
-            # Create tensors filled with -infinity
-            t_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
-            h_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
-            
-            # Split the batch into t_batch and h_batch
-            t_batch, h_batch = tasks.build_candidate_set(test_data, filtered_data, batch, cand_size=1000, num_users=test_data.num_users)
+        # Use scatter to populate t_pred and h_pred efficiently
+        # Extract the tail indices from t_batch and head indices from h_batch
+        t_indices = t_batch[:, :, 1]  # Tail node indices, shape: (batch_size, 101)
+        h_indices = h_batch[:, :, 0]  # Head node indices, shape: (batch_size, 101)
+        
+        # Scatter predictions into the respective tensors
+        t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
+        h_pred = h_pred.scatter(1, h_indices, h_pred_batch)
 
-            
-            # Get predictions for the sampled negatives
-            t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, nr_eval_negs + 1)
-            h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, nr_eval_negs + 1)
+        # Initialize relevance tensors directly with zeros
+        t_relevance = torch.zeros((batch_size, test_data.num_nodes), device=batch.device)
+        h_relevance = torch.zeros((batch_size, test_data.num_nodes), device=batch.device)
+        
+        # Set the relevance directly using advanced indexing
+        t_relevance[torch.arange(batch_size, device=batch.device), t_indices[:, 0]] = 1
+        h_relevance[torch.arange(batch_size, device=batch.device), h_indices[:, 0]] = 1
 
-            # Use scatter to populate t_pred and h_pred efficiently
-            # Extract the tail indices from t_batch and head indices from h_batch
-            t_indices = t_batch[:, :, 1]  # Tail node indices, shape: (batch_size, 101)
-            h_indices = h_batch[:, :, 0]  # Head node indices, shape: (batch_size, 101)
-            
-            # Scatter predictions into the respective tensors
-            t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
-            h_pred = h_pred.scatter(1, h_indices, h_pred_batch)
-
-            # compute t_rel/ h_rel = (bs, num_nodes) all should have 1 that are in the test set:
-            t_relevance_neg, h_relevance_neg = tasks.strict_negative_mask(test_data, batch, context = 3)
-            t_relevance,h_relevance = tasks.invert_mask(t_relevance_neg, h_relevance_neg, num_users)
-            # Note no filtering is needed since we have not computed scores for things which are included in the 
-
-            #compute ndcg scores 
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
-            ndcgs += [t_ndcg, h_ndcg]
-            tail_ndcgs +=  [t_ndcg]
-            
-        else:
-            #print(f"im here in test and we evaluate vs: {nr_eval_negs} ")
-            batch_size = batch.size(0)
-            # Create tensors filled with -infinity
-            t_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
-            h_pred = torch.full((batch_size, test_data.num_nodes), float('-inf'), device=batch.device)
-            
-            # Concatenate batch for negative sampling
-            batch_concat = torch.cat((batch, batch), dim=0)
-            
-            # Perform negative sampling
-            batch_sampled = tasks.negative_sampling(filtered_data, batch_concat, nr_eval_negs, strict=True)
-            
-            # Split the batch into t_batch and h_batch
-            t_batch = batch_sampled[:batch_size, :, :]
-            h_batch = batch_sampled[batch_size:, :, :]
-            
-            # Get predictions for the sampled negatives
-            t_pred_batch = model(test_data, t_batch)  # Shape: (batch_size, nr_eval_negs + 1)
-            h_pred_batch = model(test_data, h_batch)  # Shape: (batch_size, nr_eval_negs + 1)
-            
-
-            # Use scatter to populate t_pred and h_pred efficiently
-            # Extract the tail indices from t_batch and head indices from h_batch
-            t_indices = t_batch[:, :, 1]  # Tail node indices, shape: (batch_size, 101)
-            h_indices = h_batch[:, :, 0]  # Head node indices, shape: (batch_size, 101)
-            
-            # Scatter predictions into the respective tensors
-            t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
-            h_pred = h_pred.scatter(1, h_indices, h_pred_batch)
-
-            # Initialize relevance tensors directly with zeros
-            t_relevance = torch.zeros((batch_size, test_data.num_nodes), device=batch.device)
-            h_relevance = torch.zeros((batch_size, test_data.num_nodes), device=batch.device)
-            
-            # Set the relevance directly using advanced indexing
-            t_relevance[torch.arange(batch_size, device=batch.device), t_indices[:, 0]] = 1
-            h_relevance[torch.arange(batch_size, device=batch.device), h_indices[:, 0]] = 1
-
-            #compute ndcg scores 
-            t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
-            h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
-            ndcgs += [t_ndcg, h_ndcg]
-            tail_ndcgs +=  [t_ndcg]
+        #compute ndcg scores 
+        t_ndcg = tasks.compute_ndcg_at_k(t_pred, t_relevance, k)
+        h_ndcg = tasks.compute_ndcg_at_k(h_pred, h_relevance, k)
+        ndcgs += [t_ndcg, h_ndcg]
+        tail_ndcgs +=  [t_ndcg]
 
 
         
@@ -483,7 +550,8 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
                 score = _ranking.float().mean()
             elif _metric_name == "mrr":
                 score = (1 / _ranking.float()).mean()
-            elif _metric_name == "ndcg@20":
+            elif _metric_name == "ndcg":
+                 metric = f"{_metric_name}@{k}"
                  score = _ndcgs.mean().item()
             elif _metric_name.startswith("hits@"):
                 values = _metric_name[5:].split("_")
@@ -528,11 +596,10 @@ if __name__ == "__main__":
     is_amazon = dataset_name.startswith("Amazon")
     nr_eval_negs = util.set_eval_negs(dataset_name)
     
+    if not nr_eval_negs == -1:
+        k = 10
     run_name = util.get_run_name(cfg)
     
-    if is_amazon:
-        print ("We are using a amazon dataset")
-        k = 10
         
     wandb_on = cfg.train["wandb"]
     if wandb_on:
@@ -590,9 +657,9 @@ if __name__ == "__main__":
                     if m.bias is not None:
                         nn.init.zeros_(m.bias)
         
-        # Apply the weight initialization
-        model.user_projection.apply(weights_init)
-        model.item_projection.apply(weights_init)
+        if cfg.model.get("node_features", False):
+            model.user_projection.apply(weights_init)
+            model.item_projection.apply(weights_init)
     
 
     #model = pyg.compile(model, dynamic=True)
@@ -662,13 +729,13 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_valid = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        result = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs = nr_eval_negs)
+        result_valid = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs = nr_eval_negs)
     
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_valid.items():
             wandb.summary[f"validation/performance/{metric}"] = score
 
     
@@ -692,14 +759,23 @@ if __name__ == "__main__":
         
         # Compute average performance only on rank 0
         if util.get_rank() == 0:
-            result = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
+            result_test = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        result = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data,nr_eval_negs = nr_eval_negs)
+        result_test = test(cfg, model, test_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data,nr_eval_negs = nr_eval_negs)
+   
 
     # Log metrics only on rank 0
     if util.get_rank() == 0 and wandb_on:
-        for metric, score in result.items():
+        for metric, score in result_test.items():
             wandb.summary[f"test/performance/{metric}"] = score
+        
+    if util.get_rank() == 0 and cfg.train["save_results_db"]:
+        # Define a custom path for the SQLite database
+        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/result.db"
+        # Ensure the directory exists before writing
+        Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
+        run_data = util.build_run_data(cfg, dataset_name, result_valid, result_test)
+        util.log_results_to_db(run_data, db_path=DB_FILE)
  
     
    
