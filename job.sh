@@ -54,7 +54,7 @@ cd ${DIRECTORY}
    # "Amazon_Beauty", "Amazon_Fashion", "Amazon_Men", "Amazon_Games", "Yelp18"
 #]
 # Execute your code 62 bpe for light gcn and 1978 for simple on movielense
-python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 0 --bpe 0 --gpus "[0]" --ckpt /itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain/LastFM.pth
+python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 8 --bpe 0 --gpus "[0]" --ckpt null
 #python script/hyperparam_search.py -c config/recommender/pretrain_all.yaml --gpus [0]
 #python script/run.py -c config/recommender/slurm_cfg.yaml --dataset LastFM --epochs 8 --bpe 2000 --gpus "[0]" --ckpt null
 #python script/pretrain.py -c config/recommender/pretrain_all.yaml --gpus [0]

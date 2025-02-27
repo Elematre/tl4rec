@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:geforce_rtx_3090:1                # Allocate 1 GPU per job
 #SBATCH --nodelist=tikgpu09                          # Specific node reservation
-#SBATCH --array=0-71                                 # Total jobs = (9 datasets * 8 checkpoints)
+#SBATCH --array=0-19                                 # Total jobs = (10 datasets * 2 checkpoints)
 
 # User-specific variables
 ETH_USERNAME=trachsele
@@ -18,17 +18,11 @@ CONDA_ENVIRONMENT=ba_bugfix
 CKPT_DIR=${DIRECTORY}/ckpts/pretrain
 
 # Define an array of datasets
-DATASETS=("Epinions" "BookX" "Ml1m" "Gowalla" "Amazon_Beauty" "Amazon_Fashion" "Amazon_Men" "Amazon_Games" "Yelp18")
+DATASETS=("Epinions" "BookX" "Ml1m" "Gowalla" "Amazon_Beauty" "Amazon_Fashion" "Amazon_Men" "Amazon_Games" "Yelp18" "LastFM")
 
 # Define an array of checkpoint file names (without path)
-CKPTS=("Amazon_Beauty.pth" \
-       "Amazon_Games.pth" \
-       "Amazon_Fashion.pth" \
-       "Amazon_Men.pth" \
-       "Epinions.pth" \
-       "Ml1m.pth" \
-       "LastFM.pth" \
-       "BookX.pth")
+CKPTS=("Yelp18.pth" \
+       "Gowalla.pth")
 
 # Compute dataset and checkpoint index from the SLURM_ARRAY_TASK_ID
 job_index=$SLURM_ARRAY_TASK_ID
