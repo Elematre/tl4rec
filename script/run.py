@@ -429,7 +429,7 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
     # we have two different evaluation modes if we have nr_eval_negs = 100 we are in training or performing sequential recommendation on the
     # Amazon dataset. This means we evaluate on a per edge/query basis. Else we evaluate on a per user basis where we generate scores for each user
     if not nr_eval_negs == 100:
-        return test_per_user (cfg, model, test_data, device, logger, filtered_data, return_metrics, valid_data, nr_eval_negs)
+        return test_per_user(cfg, model, test_data, device, logger, filtered_data, return_metrics, valid_data, nr_eval_negs)
     
     world_size = util.get_world_size()
     rank = util.get_rank()
@@ -795,7 +795,6 @@ if __name__ == "__main__":
         if util.get_rank() == 0:
             result_valid = {metric: sum(r[metric] for r in test_results) / 5 for metric in test_results[0]}
     else:
-        #pass
         result_valid = test(cfg, model, valid_data, filtered_data=test_filtered_data, device=device, logger=logger, return_metrics=True, valid_data=valid_data, nr_eval_negs= nr_eval_negs)
     
     # Log metrics only on rank 0
@@ -835,7 +834,7 @@ if __name__ == "__main__":
         
     if util.get_rank() == 0 and cfg.train["save_results_db"]:
         # Define a custom path for the SQLite database
-        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results_all_to_all.db"
+        DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results.db" 
         # Ensure the directory exists before writing
         Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
         run_data = util.build_run_data(cfg, dataset_name, result_valid, result_test)

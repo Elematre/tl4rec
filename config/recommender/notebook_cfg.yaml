@@ -54,7 +54,7 @@ train:
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
-  loss: Bpr # Options: Bpr, bce
+  loss: bce # Options: Bpr, bce
   target_metric: ndcg
   wandb: no
   gradient_clip: no

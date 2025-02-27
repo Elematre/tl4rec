@@ -54,7 +54,7 @@ train:
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
-  loss: bpr # Options: Bpr, bce
+  loss: bce # Options: Bpr, bce
   target_metric: ndcg
   wandb: yes
   gradient_clip: no
@@ -63,7 +63,7 @@ train:
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 4
   save_ckpt: no
-  save_results_db: no
+  save_results_db: yes
   fine_tuning:
     num_epoch_proj: 0
    
