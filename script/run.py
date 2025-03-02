@@ -652,7 +652,7 @@ if __name__ == "__main__":
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         # TODO CHANGe
-        model.load_state_dict(state["model"])
+        model.ultra.load_state_dict(state["model"])
         # initialize linear weights:
         def weights_init(m):
                 if isinstance(m, nn.Linear):

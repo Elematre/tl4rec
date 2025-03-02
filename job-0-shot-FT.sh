@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:geforce_rtx_3090:1                # Allocate 1 GPU per job
 #SBATCH --nodelist=tikgpu09                          # Specific node reservation
-#SBATCH --array=0-7                                  # Total jobs = 8 (4 datasets * 2 evaluation modes)
+#SBATCH --array=0-3                                  # 4 datasets, each running in zero-shot mode
 
 # User-specific variables
 ETH_USERNAME=trachsele
@@ -17,31 +17,22 @@ CONDA_ENVIRONMENT=ba_bugfix
 # Fixed checkpoint for evaluation
 CKPT="/itet-stor/${ETH_USERNAME}/net_scratch/${PROJECT_NAME}/ckpts/pretrain/Beau_Epin.pth"
 
-# Define an array of datasets for evaluation
+# Define an array of datasets for zero-shot evaluation
 DATASETS=("Ml1m" "LastFM" "Epinions" "BookX")
 
-# Determine the dataset and evaluation mode based on SLURM_ARRAY_TASK_ID
-job_index=$SLURM_ARRAY_TASK_ID
-num_modes=2  # Mode 0: finetuning (epochs=1), Mode 1: zero-shot (epochs=0)
-num_datasets=${#DATASETS[@]}
+# Determine dataset based on SLURM_ARRAY_TASK_ID
+dataset_index=$SLURM_ARRAY_TASK_ID
 
-dataset_index=$(( job_index / num_modes ))
-mode_index=$(( job_index % num_modes ))
-
-if [ $dataset_index -ge $num_datasets ]; then
+if [ $dataset_index -ge ${#DATASETS[@]} ]; then
     echo "Invalid job index: $SLURM_ARRAY_TASK_ID"
     exit 1
 fi
 
 DATASET=${DATASETS[$dataset_index]}
 
-if [ $mode_index -eq 0 ]; then
-    EPOCH=1
-    MODE_NAME="finetuning"
-else
-    EPOCH=0
-    MODE_NAME="zero-shot"
-fi
+# Set evaluation mode to zero-shot (epochs=0)
+EPOCH=0
+MODE_NAME="zero-shot"
 
 # Create jobs directory if it doesn't exist
 mkdir -p ${DIRECTORY}/jobs
@@ -81,12 +72,12 @@ conda info --envs
 # Change to the project directory
 cd ${DIRECTORY}
 
-# Run evaluation
+# Run evaluation in zero-shot mode
 python script/run.py -c config/recommender/slurm_cfg.yaml \
     --dataset "$DATASET" --epochs $EPOCH --bpe 1000 --gpus "[0]" --ckpt "$CKPT"
 
 # Log completion
-echo "Finished evaluation for dataset: $DATASET with checkpoint: $CKPT in $MODE_NAME mode"
+echo "Finished zero-shot evaluation for dataset: $DATASET with checkpoint: $CKPT"
 echo "Finished at: $(date)"
 
 exit 0
