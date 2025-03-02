@@ -249,6 +249,7 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
     
     #  Determine edge_dim from configuration.
     #edge_dim = cfg.model.edge_projection["hidden_dims"][0]
+    print ("1")
     num_users = test_data.num_users
     model.eval()
     for batch in user_loader:
@@ -264,7 +265,7 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
         # Concatenate along the second dimension to form a (B, 3) tensor.
         # Column 0: user id, Columns 1-2: generic zeros.
         user_batch = torch.cat([user_ids, generic_zeros], dim=1)
-                
+        print ("2")       
         # 3. Create a generic target_edge_attr: all ones of shape (B, edge_dim).
         if nr_eval_negs == -1:
             t_batch, _ = tasks.all_negative(test_data, user_batch)
@@ -310,11 +311,11 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
             
             # 5. Create a full prediction tensor for tails: (B, test_data.num_nodes) filled with -inf.
             t_pred = torch.full((B, test_data.num_nodes), float('-inf'), device=device)
-            
+            print ("3")
             # 6. Get model predictions for the candidate set.
             # Expected output shape: (B, cand_size)
             t_pred_batch = model(test_data, t_batch)
-            
+            print ("4")
             # 7. Scatter candidate scores into the full prediction tensor.
             t_indices = t_batch[:, :, 1]  # Candidate tail indices (B, cand_size)
             t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
@@ -334,29 +335,26 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
             negative_scores = torch.where(~t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
             pos_scores = masked_t_pred.max(dim=1)[0]
             batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
-            
+            print ("5")
             rank_list.append(batch_ranks)
             
     # 11. Concatenate batch results locally.
     all_ndcg = torch.cat(ndcg_list, dim=0)   # shape: (num_users_local,)
     all_ranks = torch.cat(rank_list, dim=0)     # shape: (num_users_local,)
-    
+    print ("6")
     # 12. Distributed aggregation using all_gather.
     if world_size > 1:
         # Prepare placeholders for gathered results.
         gathered_ndcg = [torch.zeros_like(all_ndcg) for _ in range(world_size)]
         gathered_ranks = [torch.zeros_like(all_ranks) for _ in range(world_size)]
-        gathered_num_neg = [torch.zeros_like(all_num_neg) for _ in range(world_size)]
-        
+    
         # All-gather the local results from all ranks.
         dist.all_gather(gathered_ndcg, all_ndcg)
         dist.all_gather(gathered_ranks, all_ranks)
-        dist.all_gather(gathered_num_neg, all_num_neg)
         
         # Concatenate along the 0 dimension to form the global tensors.
         all_ndcg = torch.cat(gathered_ndcg, dim=0)
         all_ranks = torch.cat(gathered_ranks, dim=0)
-        all_num_neg = torch.cat(gathered_num_neg, dim=0)
         
 
 
@@ -649,7 +647,8 @@ if __name__ == "__main__":
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
-        model.ultra.load_state_dict(state["model"])
+        # TODO CHANGe
+        model.load_state_dict(state["model"])
         # initialize linear weights:
         def weights_init(m):
                 if isinstance(m, nn.Linear):
