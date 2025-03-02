@@ -201,7 +201,7 @@ def train_and_validate(cfg, model, train_data, valid_data, device, logger, filte
         # Construct the checkpoint filename
         checkpoint_dir = "/itet-stor/trachsele/net_scratch/tl4rec/ckpts/pretrain"
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_name = f"{dataset_name}.pth"
+        checkpoint_name = f"{dataset_name}_DEBUG.pth"
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
         logger.warning(f"Save final_ckpt to {checkpoint_path}")
         torch.save(state, checkpoint_path)
@@ -249,7 +249,6 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
     
     #  Determine edge_dim from configuration.
     #edge_dim = cfg.model.edge_projection["hidden_dims"][0]
-    print ("1")
     num_users = test_data.num_users
     model.eval()
     for batch in user_loader:
@@ -264,8 +263,7 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
         
         # Concatenate along the second dimension to form a (B, 3) tensor.
         # Column 0: user id, Columns 1-2: generic zeros.
-        user_batch = torch.cat([user_ids, generic_zeros], dim=1)
-        print ("2")       
+        user_batch = torch.cat([user_ids, generic_zeros], dim=1)    
         # 3. Create a generic target_edge_attr: all ones of shape (B, edge_dim).
         if nr_eval_negs == -1:
             t_batch, _ = tasks.all_negative(test_data, user_batch)
@@ -311,11 +309,9 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
             
             # 5. Create a full prediction tensor for tails: (B, test_data.num_nodes) filled with -inf.
             t_pred = torch.full((B, test_data.num_nodes), float('-inf'), device=device)
-            print ("3")
             # 6. Get model predictions for the candidate set.
             # Expected output shape: (B, cand_size)
             t_pred_batch = model(test_data, t_batch)
-            print ("4")
             # 7. Scatter candidate scores into the full prediction tensor.
             t_indices = t_batch[:, :, 1]  # Candidate tail indices (B, cand_size)
             t_pred = t_pred.scatter(1, t_indices, t_pred_batch)
@@ -335,13 +331,11 @@ def test_per_user(cfg, model, test_data, device, logger, filtered_data=None, ret
             negative_scores = torch.where(~t_relevance.bool(), t_pred, torch.tensor(float('-inf'), device=device))
             pos_scores = masked_t_pred.max(dim=1)[0]
             batch_ranks = (negative_scores >= pos_scores.unsqueeze(1)).sum(dim=1) + 1  # (B,)
-            print ("5")
             rank_list.append(batch_ranks)
             
     # 11. Concatenate batch results locally.
     all_ndcg = torch.cat(ndcg_list, dim=0)   # shape: (num_users_local,)
     all_ranks = torch.cat(rank_list, dim=0)     # shape: (num_users_local,)
-    print ("6")
     # 12. Distributed aggregation using all_gather.
     if world_size > 1:
         # Prepare placeholders for gathered results.
@@ -640,10 +634,20 @@ if __name__ == "__main__":
     test_data.edge_attr = None
     test_data.target_edge_attr = None
     print ("discarded edge_features")
-
+    
+    
     
     model = Gru_Ultra(cfg.model, log = wandb_on)
-
+    
+    if cfg.train["init_linear_weights"]:
+        def weights_init(m):
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+    
+        # Apply the weight initialization
+        model.apply(weights_init)
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
@@ -665,15 +669,7 @@ if __name__ == "__main__":
     model = model.to(device)
     if wandb_on:
         wandb.watch(model, log= None)
-    if cfg.train["init_linear_weights"]:
-        def weights_init(m):
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-    
-        # Apply the weight initialization
-        model.apply(weights_init)
+
     
     if task_name == "InductiveInference":
         # filtering for inductive datasets
