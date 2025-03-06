@@ -2,8 +2,8 @@
 
 ![GRUTL](asset/GRUTL_git.png)
 
-This repository contains the codebase used for my bachelor thesis. You can find the full thesis document [here](asset/GRUTL_thesis_raw.pdf).
-
+This repository contains the codebase used for my bachelor thesis. You can find the full thesis document [here](asset/BA_Thesis_Report.pdf).
+Please note that there are two branches, GRUTL and NBFnet, both containing the code for their respective models.
 ## Environment Setup
 To ensure compatibility, please make sure the environments are up to date. Since both **pip** and **conda** were used, you need to install dependencies from both files:
 
