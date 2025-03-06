@@ -648,16 +648,30 @@ if __name__ == "__main__":
         logger.warning("Config file: %s" % args.config)
         logger.warning(pprint.pformat(cfg))
 
-        
-    # Initialize Weights & Biases run and assign proper name to the run
+    task_name = cfg.task["name"]
+    dataset = util.build_dataset(cfg)
+    train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2] 
     dataset_name = cfg.dataset["class"]
-    is_amazon = dataset_name.startswith("Amazon")
+    device = util.get_device(cfg)
+    #set bpe
+    if vars["bpe"] is not None:
+        bpe = vars["bpe"]
+    else:
+        num_edges = train_data.edge_index.size(1)
+        bpe = util.set_bpe(cfg,num_edges)
+
+    cfg.train["batch_per_epoch"] = bpe
+    if util.get_rank() == 0:
+        logger.warning("Bpe: %d" % bpe)
+
+    # set evaluation mode depending on the dataset
     nr_eval_negs = util.set_eval_negs(dataset_name)
+    # adjust k for ndcg@k depending on the dataset a bit ugly
     if not nr_eval_negs == -1:
         k = 10
-    
-
-        
+         
+    # Initialize Weights & Biases run and assign proper name to the run
+    is_amazon = dataset_name.startswith("Amazon")
     run_name = util.get_run_name(cfg)
     wandb_on = cfg.train["wandb"]
     cfg["run_name"] = f"{dataset_name}-{run_name}"
@@ -665,32 +679,12 @@ if __name__ == "__main__":
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name= f"{dataset_name}-{run_name}", config=cfg)
         
-    task_name = cfg.task["name"]
-    dataset = util.build_dataset(cfg)
-    device = util.get_device(cfg)
-    #test_functions.test_pyG_graph(dataset)
     
     
-    train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
     
-    # make datasets smaller since we dont use edge_features
-    print ("discarded node_features")
-    train_data.x_user = None
-    train_data.x_item = None
-    valid_data.x_user = None
-    valid_data.x_item = None
-    test_data.x_user = None
-    test_data.x_item = None
-    
-    # set bpe
-    num_edges = train_data.edge_index.size(1)
-    bpe = util.set_bpe(cfg,num_edges)
-    print(f"bpe = {bpe}")
-    cfg.train["batch_per_epoch"]= bpe
-    #cfg.train["batch_per_epoch"]= 10
-    #print ("This needs to be changed")
-    #print (f"bpe {bpe}")
-  
+
+
+
         
     # print some dataset statistics
     print (f"edge_attr.shape = {train_data.edge_attr.shape}")
@@ -698,8 +692,7 @@ if __name__ == "__main__":
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)
-    #print(f"Number of nodes: {train_data.num_nodes}")
-    # entity_model needs to know the dimensions of the relation model
+
     
     
 
@@ -707,23 +700,16 @@ if __name__ == "__main__":
     cfg.model.edge_projection["input_dim"] = train_data.edge_attr.size(1)
     model = Gru_Ultra(
         cfg = cfg.model)
-
-    #model = My_LightGCN(train_data.num_nodes)
     
-    #model = Ultra(
-    #    rel_model_cfg= rel_model_cfg,
-     #   entity_model_cfg= entity_model_cfg,
-      #  embedding_user_cfg = cfg.model.embedding_user,
-       # embedding_item_cfg = cfg.model.embedding_item
-    #)
-
-    
-    
+    # set fine_tuning global
     fine_tuning = cfg.train.num_epoch < 4
     #model = pyg.compile(model, dynamic=True)
+    
     model = model.to(device)
     if wandb_on:
         wandb.watch(model, log= None)
+
+    # initialize model weights
     if cfg.train["init_linear_weights"]:
         def weights_init(m):
             if isinstance(m, nn.Linear):
@@ -733,41 +719,19 @@ if __name__ == "__main__":
     
         # Apply the weight initialization
         model.apply(weights_init)
-        
+
+    # load checkpoint
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
         model.ultra.load_state_dict(state["model"])
         #print ("this needs to be changed")
         #model.load_state_dict(state["model"])
     
-    if task_name == "InductiveInference":
-        # filtering for inductive datasets
-        # Grail, MTDEA, HM datasets have validation sets based off the training graph
-        # ILPC, Ingram have validation sets from the inference graph
-        # filtering dataset should contain all true edges (base graph + (valid) + test) 
-        if "ILPC" in cfg.dataset['class'] or "Ingram" in cfg.dataset['class']:
-            # add inference, valid, test as the validation and test filtering graphs
-            full_inference_edges = torch.cat([valid_data.edge_index, valid_data.target_edge_index, test_data.target_edge_index], dim=1)
-            full_inference_etypes = torch.cat([valid_data.edge_type, valid_data.target_edge_type, test_data.target_edge_type])
-            test_filtered_data = Data(edge_index=full_inference_edges, edge_type=full_inference_etypes, num_nodes=test_data.num_nodes)
-            val_filtered_data = test_filtered_data
-        else:
-            # test filtering graph: inference edges + test edges
-            full_inference_edges = torch.cat([test_data.edge_index, test_data.target_edge_index], dim=1)
-            full_inference_etypes = torch.cat([test_data.edge_type, test_data.target_edge_type])
-            test_filtered_data = Data(edge_index=full_inference_edges, edge_type=full_inference_etypes, num_nodes=test_data.num_nodes)
 
-            # validation filtering graph: train edges + validation edges
-            val_filtered_data = Data(
-                edge_index=torch.cat([train_data.edge_index, valid_data.target_edge_index], dim=1),
-                edge_type=torch.cat([train_data.edge_type, valid_data.target_edge_type])
-            )
-    else:
-        # for transductive setting, use the whole graph for filtered ranking
-        # train target edges are the directed edges
-        # dataset._data.target_edge_index contains all edges of the graph.
-        filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
-        val_filtered_data = test_filtered_data = filtered_data
+    # use the whole graph for filtered ranking
+    # dataset._data.target_edge_index contains all edges of the graph.
+    filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
+    val_filtered_data = test_filtered_data = filtered_data
     
     val_filtered_data = val_filtered_data.to(device)
     test_filtered_data = test_filtered_data.to(device)
@@ -777,7 +741,8 @@ if __name__ == "__main__":
     if util.get_rank() == 0:
         logger.warning(separator)
         logger.warning("Evaluate on valid")
-
+        
+    # ugly code for doing 5 evaluations on Amazon datasets and average the result
     if is_amazon:
         util.synchronize()
         if util.get_rank() == 0:
@@ -831,7 +796,8 @@ if __name__ == "__main__":
     if util.get_rank() == 0 and wandb_on:
         for metric, score in result_test.items():
             wandb.summary[f"test/performance/{metric}"] = score
-        
+
+    # optional save the resutls to a db
     if util.get_rank() == 0 and cfg.train["save_results_db"]:
         # Define a custom path for the SQLite database
         DB_FILE = "//itet-stor/trachsele/net_scratch/tl4rec/model_outputs/results.db" 

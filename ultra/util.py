@@ -20,7 +20,7 @@ from torch import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR
 
-from ultra import models, datasets
+from ultra import models, datasets, test_functions
 
 
 logger = logging.getLogger(__file__)
@@ -265,21 +265,36 @@ def literal_eval(string):
         return string
 
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="yaml configuration file", required=True)
-    parser.add_argument("-s", "--seed", help="random seed for PyTorch", type=int, default=1024)
+    parser.add_argument("-c", "--config", help="YAML configuration file", required=True)
+    parser.add_argument("-s", "--seed", help="Random seed for PyTorch", type=int, default=1024)
+    
+    # Make --bpe optional
+    parser.add_argument("--bpe", type=int, help="Batch per epoch (optional)", default=None)
 
     args, unparsed = parser.parse_known_args()
-    # get dynamic arguments defined in the config file
-    vars = detect_variables(args.config)
-    parser = argparse.ArgumentParser()
-    for var in vars:
-        parser.add_argument("--%s" % var, required=True)
-    vars = parser.parse_known_args(unparsed)[0]
-    vars = {k: literal_eval(v) for k, v in vars._get_kwargs()}
 
-    return args, vars
+    # Get dynamic arguments defined in the config file
+    vars = detect_variables(args.config)
+
+    # Add dynamically detected variables
+    dynamic_parser = argparse.ArgumentParser()
+    for var in vars:
+        dynamic_parser.add_argument(f"--{var}", required=False)  # Ensure dynamic args are NOT required
+
+    # Parse known dynamic arguments
+    dynamic_vars = dynamic_parser.parse_known_args(unparsed)[0]
+    dynamic_vars = {k: literal_eval(v) for k, v in dynamic_vars._get_kwargs()}
+
+    # Merge parsed static and dynamic arguments
+    if args.bpe is not None:
+        dynamic_vars["bpe"] = args.bpe
+
+    return args, dynamic_vars
+
+
 
 
 def get_root_logger(file=True):
@@ -385,6 +400,24 @@ def build_dataset(cfg):
                             sum(d.target_edge_index.shape[1] for d in dataset._data[1]),
                             sum(d.target_edge_index.shape[1] for d in dataset._data[2]),
                             ))
-
+   
+    if cfg.train.get("testgraph", False):
+        test_functions.test_pyG_graph(dataset)
+        
+    if not cfg.model.get("node_features", False):
+        if get_rank() == 0:
+            logger.warning("Discarding node features as they are not needed")
+        for data in dataset:  # Directly iterate over dataset
+            data.x_user = None
+            data.x_item = None
+    
+    if not cfg.model.get("edge_features", False):
+        if get_rank() == 0:
+            logger.warning("Discarding edge features as they are not needed")
+        for data in dataset:  # Directly iterate over dataset
+            data.target_edge_attr = None
+            data.edge_attr = None
+           
+        
     return dataset
 

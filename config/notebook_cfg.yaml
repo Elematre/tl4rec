@@ -3,6 +3,7 @@ output_dir: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/logs
 dataset:
   class: {{ dataset }}
   root: /itet-stor/trachsele/net_scratch/tl4rec/model_outputs/data
+  
 
 #the input dim of the entity_model needs to be output_dim relation_model + output_dim embedding_model
 # projection_dim = embedding_dim
@@ -49,6 +50,7 @@ optimizer:
   backbone_mlp_edge_lr: 0.0003360904636420548
 
 train:
+   
   gpus: [{{ gpus }}]
   batch_size: 4
   num_epoch: {{ epochs }}
@@ -64,6 +66,7 @@ train:
   test_batch_size: 32
   save_ckpt: no
   save_results_db: no
+  testgraph: yes # wether to check the graph for consistency
   fine_tuning:
     num_epoch_proj: 0
    
