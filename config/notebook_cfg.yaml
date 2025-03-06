@@ -55,21 +55,21 @@ optimizer:
   lr:  0.00017783663799881164
 
 train:
-  gpus: {{ gpus }}
+  gpus: [{{ gpus }}]
   batch_size: 16
   num_epoch: {{ epochs }}
   log_interval: 100
   batch_per_epoch: {{ bpe }}
   loss: bce # Options: Bpr, bce
   target_metric: ndcg
-  wandb: yes
+  wandb: no
   gradient_clip: no
   init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 8
   save_ckpt: no
-  save_results_db: yes
+  save_results_db: no
   fine_tuning:
     num_epoch_proj: 1
    

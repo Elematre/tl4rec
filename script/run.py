@@ -568,72 +568,59 @@ def test(cfg, model, test_data, device, logger, filtered_data=None, return_metri
 
     return mrr if not return_metrics else metrics
 
-
 if __name__ == "__main__":
     args, vars = util.parse_args()
     cfg = util.load_config(args.config, context=vars)
     working_dir = util.create_working_directory(cfg)
 
     torch.manual_seed(args.seed + util.get_rank())
-    
+    #torch.manual_seed(42)
     logger = util.get_root_logger()
     if util.get_rank() == 0:
         logger.warning("Random seed: %d" % args.seed)
         logger.warning("Config file: %s" % args.config)
         logger.warning(pprint.pformat(cfg))
 
-        
-    # Initialize Weights & Biases run and assign proper name to the run
+    task_name = cfg.task["name"]
+    dataset = util.build_dataset(cfg)
+    train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2] 
     dataset_name = cfg.dataset["class"]
-    is_amazon = dataset_name.startswith("Amazon")
+    device = util.get_device(cfg)
+    #set bpe
+    if vars["bpe"] is not None:
+        bpe = vars["bpe"]
+    else:
+        num_edges = train_data.edge_index.size(1)
+        bpe = util.set_bpe(cfg,num_edges)
+
+    cfg.train["batch_per_epoch"] = bpe
+    if util.get_rank() == 0:
+        logger.warning("Bpe: %d" % bpe)
+
+    # set evaluation mode depending on the dataset
     nr_eval_negs = util.set_eval_negs(dataset_name)
-    
+    # adjust k for ndcg@k depending on the dataset a bit ugly
     if not nr_eval_negs == -1:
         k = 10
+         
+    # Initialize Weights & Biases run and assign proper name to the run
+    is_amazon = dataset_name.startswith("Amazon")
     run_name = util.get_run_name(cfg)
-    
-        
     wandb_on = cfg.train["wandb"]
+    cfg["run_name"] = f"{dataset_name}-{run_name}"
     if wandb_on:
         wandb.init(
             entity = "pitri-eth-z-rich", project="tl4rec", name= f"{dataset_name}-{run_name}", config=cfg)
         
-    task_name = cfg.task["name"]
-    dataset = util.build_dataset(cfg)
-    device = util.get_device(cfg)
-    
-    train_data, valid_data, test_data = dataset[0], dataset[1], dataset[2]
     # print some dataset statistics
-    num_edges = train_data.edge_index.size(1)
-    bpe = util.set_bpe(cfg,num_edges)
-    print(f"bpe = {bpe}")
-    cfg.train["batch_per_epoch"]= bpe
+    print (f"edge_attr.shape = {train_data.edge_attr.shape}")
     #raise ValueError("until here")
     train_data = train_data.to(device)
     valid_data = valid_data.to(device)
     test_data = test_data.to(device)
-    #print(f"Number of nodes: {train_data.num_nodes}")
-    # entity_model needs to know the dimensions of the relation model
+
     
-    if not cfg.model.get("node_features", True):
-        train_data.x_user = None
-        train_data.x_item = None
-        valid_data.x_user = None
-        valid_data.x_item = None
-        test_data.x_user = None
-        test_data.x_item = None
-        print ("discarded node_features")
-    else:
-        cfg.model.user_projection["input_dim"] = train_data.x_user.size(1)
-        cfg.model.item_projection["input_dim"] = train_data.x_item.size(1)
-        
-    train_data.edge_attr = None
-    train_data.target_edge_attr = None
-    valid_data.edge_attr = None
-    valid_data.target_edge_attr = None
-    test_data.edge_attr = None
-    test_data.target_edge_attr = None
-    print ("discarded edge_features")
+    
     
     
     
@@ -651,8 +638,8 @@ if __name__ == "__main__":
 
     if "checkpoint" in cfg and cfg.checkpoint is not None:
         state = torch.load(cfg.checkpoint, map_location="cpu")
-        # TODO CHANGe
-        model.ultra.load_state_dict(state["model"])
+        # CAREFUL one would need to change this if you were to use edge feature
+        model.load_state_dict(state["model"])
         # initialize linear weights:
         def weights_init(m):
                 if isinstance(m, nn.Linear):
@@ -670,35 +657,11 @@ if __name__ == "__main__":
     if wandb_on:
         wandb.watch(model, log= None)
 
-    
-    if task_name == "InductiveInference":
-        # filtering for inductive datasets
-        # Grail, MTDEA, HM datasets have validation sets based off the training graph
-        # ILPC, Ingram have validation sets from the inference graph
-        # filtering dataset should contain all true edges (base graph + (valid) + test) 
-        if "ILPC" in cfg.dataset['class'] or "Ingram" in cfg.dataset['class']:
-            # add inference, valid, test as the validation and test filtering graphs
-            full_inference_edges = torch.cat([valid_data.edge_index, valid_data.target_edge_index, test_data.target_edge_index], dim=1)
-            full_inference_etypes = torch.cat([valid_data.edge_type, valid_data.target_edge_type, test_data.target_edge_type])
-            test_filtered_data = Data(edge_index=full_inference_edges, edge_type=full_inference_etypes, num_nodes=test_data.num_nodes)
-            val_filtered_data = test_filtered_data
-        else:
-            # test filtering graph: inference edges + test edges
-            full_inference_edges = torch.cat([test_data.edge_index, test_data.target_edge_index], dim=1)
-            full_inference_etypes = torch.cat([test_data.edge_type, test_data.target_edge_type])
-            test_filtered_data = Data(edge_index=full_inference_edges, edge_type=full_inference_etypes, num_nodes=test_data.num_nodes)
-
-            # validation filtering graph: train edges + validation edges
-            val_filtered_data = Data(
-                edge_index=torch.cat([train_data.edge_index, valid_data.target_edge_index], dim=1),
-                edge_type=torch.cat([train_data.edge_type, valid_data.target_edge_type])
-            )
-    else:
-        # for transductive setting, use the whole graph for filtered ranking
-        # train target edges are the directed edges
-        # dataset._data.target_edge_index contains all edges of the graph.
-        filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
-        val_filtered_data = test_filtered_data = filtered_data
+    # use the whole graph for filtered ranking
+    # train target edges are the directed edges
+    # dataset._data.target_edge_index contains all edges of the graph.
+    filtered_data = Data(edge_index=dataset._data.target_edge_index, edge_type=dataset._data.target_edge_type, num_nodes=dataset[0].num_nodes, num_relations=dataset[0].num_relations, num_users = dataset[0].num_users, num_items = dataset[0].num_items)
+    val_filtered_data = test_filtered_data = filtered_data
     
     val_filtered_data = val_filtered_data.to(device)
     test_filtered_data = test_filtered_data.to(device)

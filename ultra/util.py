@@ -20,11 +20,10 @@ from torch import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.datasets import RelLinkPredDataset, WordNet18RR
 
-from ultra import models, datasets
+from ultra import models, datasets, test_functions
 
 
 logger = logging.getLogger(__file__)
-
 
 def get_pretrain_graph_name(graphs):
     """
@@ -54,7 +53,7 @@ def log_results_to_db(run_data, db_path):
     cursor = conn.cursor()
 
     # Get existing columns in the database
-    cursor.execute("PRAGMA table_info(results)")
+    cursor.execute("PRAGMA table_info(experiments)")
     existing_columns = {row[1] for row in cursor.fetchall()}
 
     # Convert run_data to DataFrame
@@ -69,7 +68,7 @@ def log_results_to_db(run_data, db_path):
     df = df[list(existing_columns)]
 
     # Append data to the database
-    df.to_sql("results", conn, if_exists="append", index=False)
+    df.to_sql("experiments", conn, if_exists="append", index=False)
 
     conn.close()
 
@@ -198,25 +197,25 @@ def save_cfg_of_best_params(best_params, cfg):
 
 
 def get_run_name(cfg):
-    num_epoch = cfg.train.num_epoch
-    conv_dim = cfg.model.backbone_model.simple_model["input_dim"]
-    if cfg.model["node_features"]:
-        node_features = "NF"
-    else:
-        node_features = ""
-    model_type = f"{node_features}/{conv_dim}"
     
+    if "checkpoint" in cfg and cfg.checkpoint is not None:
+        ckpt_name = os.path.basename(cfg.checkpoint)
+    else:
+        ckpt_name = "-"
+    num_epoch = cfg.train.num_epoch
+
     if num_epoch == 0:
         run_type = "0-Shot"
     elif num_epoch <= 4:
         num_epoch_proj_ft = cfg.train.fine_tuning["num_epoch_proj"]
         num_epoch_whole_ft = num_epoch - num_epoch_proj_ft
-        run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+        #run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"
+        run_type = "FT"
     else:
         run_type = f"End-to-End"
         
         
-    return f"{run_type}-{model_type}"
+    return f"{run_type}-{ckpt_name}"
     
 def log_node_features(user_projection, item_projection, name):             
             user_mean, user_var = user_projection.mean().item(), user_projection.var().item()
@@ -263,21 +262,36 @@ def literal_eval(string):
         return string
 
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="yaml configuration file", required=True)
-    parser.add_argument("-s", "--seed", help="random seed for PyTorch", type=int, default=1024)
+    parser.add_argument("-c", "--config", help="YAML configuration file", required=True)
+    parser.add_argument("-s", "--seed", help="Random seed for PyTorch", type=int, default=1024)
+    
+    # Make --bpe optional
+    parser.add_argument("--bpe", type=int, help="Batch per epoch (optional)", default=None)
 
     args, unparsed = parser.parse_known_args()
-    # get dynamic arguments defined in the config file
-    vars = detect_variables(args.config)
-    parser = argparse.ArgumentParser()
-    for var in vars:
-        parser.add_argument("--%s" % var, required=True)
-    vars = parser.parse_known_args(unparsed)[0]
-    vars = {k: literal_eval(v) for k, v in vars._get_kwargs()}
 
-    return args, vars
+    # Get dynamic arguments defined in the config file
+    vars = detect_variables(args.config)
+
+    # Add dynamically detected variables
+    dynamic_parser = argparse.ArgumentParser()
+    for var in vars:
+        dynamic_parser.add_argument(f"--{var}", required=False)  # Ensure dynamic args are NOT required
+
+    # Parse known dynamic arguments
+    dynamic_vars = dynamic_parser.parse_known_args(unparsed)[0]
+    dynamic_vars = {k: literal_eval(v) for k, v in dynamic_vars._get_kwargs()}
+
+    # Merge parsed static and dynamic arguments
+    if args.bpe is not None:
+        dynamic_vars["bpe"] = args.bpe
+
+    return args, dynamic_vars
+
+
 
 
 def get_root_logger(file=True):
@@ -323,6 +337,7 @@ def get_device(cfg):
     else:
         device = torch.device("cpu")
     return device
+
 
 def create_working_directory(cfg):
     file_name = f"working_dir_{os.environ.get('SLURM_JOB_ID', os.getpid())}.tmp"
@@ -382,6 +397,23 @@ def build_dataset(cfg):
                             sum(d.target_edge_index.shape[1] for d in dataset._data[1]),
                             sum(d.target_edge_index.shape[1] for d in dataset._data[2]),
                             ))
-
+   
+    if cfg.train.get("testgraph", False):
+        test_functions.test_pyG_graph(dataset)
+        
+    if not cfg.model.get("node_features", False):
+        if get_rank() == 0:
+            logger.warning("Discarding node features as they are not needed")
+        for data in dataset:  # Directly iterate over dataset
+            data.x_user = None
+            data.x_item = None
+    
+    if not cfg.model.get("edge_features", False):
+        if get_rank() == 0:
+            logger.warning("Discarding edge features as they are not needed")
+        for data in dataset:  # Directly iterate over dataset
+            data.target_edge_attr = None
+            data.edge_attr = None
+           
+        
     return dataset
-
