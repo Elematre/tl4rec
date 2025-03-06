@@ -209,7 +209,7 @@ def get_run_name(cfg):
     
     if num_epoch == 0:
         run_type = "0-Shot"
-    elif num_epoch <= 4:
+    elif num_epoch <= 2:
         num_epoch_proj_ft = cfg.train.fine_tuning["num_epoch_proj"]
         num_epoch_whole_ft = num_epoch - num_epoch_proj_ft
         #run_type = f"FT_{num_epoch_proj_ft}/{num_epoch_whole_ft}"

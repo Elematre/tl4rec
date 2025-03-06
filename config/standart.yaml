@@ -56,14 +56,14 @@ train:
   batch_per_epoch: {{ bpe }}
   loss: bce # Options: Bpr, bce
   target_metric: ndcg
-  wandb: yes
+  wandb: no
   gradient_clip: no
   init_linear_weights: yes
   num_evals: 10
   # true num_evals is calculated by: ceil(num_epoch / num_evals)
   test_batch_size: 4
   save_ckpt: no
-  save_results_db: yes
+  save_results_db: no
   testgraph: yes # wether to check the graph for consistency
   fine_tuning:
     num_epoch_proj: 0
