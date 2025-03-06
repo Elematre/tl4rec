@@ -1,8 +1,8 @@
 # GRUTL (Graph-based Recommendation using Transfer Learning)
 
-![GRUTL](assets/GRUTL_overview.pdf)
+![GRUTL](asset/GRUTL_git.png)
 
-This repository contains the codebase used for my bachelor thesis. You can find the full thesis document [here](assets/GRUTL_thesis_raw.pdf).
+This repository contains the codebase used for my bachelor thesis. You can find the full thesis document [here](asset/GRUTL_thesis_raw.pdf).
 
 ## Environment Setup
 To ensure compatibility, please make sure the environments are up to date. Since both **pip** and **conda** were used, you need to install dependencies from both files:
